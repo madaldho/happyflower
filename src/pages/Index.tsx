@@ -1,20 +1,28 @@
 
 import { useState } from 'react';
 import { Header } from '@/components/Header';
-import { Hero } from '@/components/Hero';
-import { ProductGrid, type Product } from '@/components/ProductGrid';
-import { AIChat } from '@/components/AIChat';
+import { AIFlowerChat } from '@/components/AIFlowerChat';
+import { FlowerProducts } from '@/components/FlowerProducts';
 import { CartDrawer, type CartItem } from '@/components/CartDrawer';
-import { CheckoutModal } from '@/components/CheckoutModal';
-import { About } from '@/components/About';
-import { Contact } from '@/components/Contact';
-import { Footer } from '@/components/Footer';
+import { SimpleCheckout } from '@/components/SimpleCheckout';
+import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
+import { MessageCircle, Flower2, ShoppingBag } from 'lucide-react';
+
+interface Product {
+  id: string;
+  name: string;
+  price: number;
+  image_url: string;
+  description: string;
+  category: string;
+}
 
 const Index = () => {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  const [showAIChat, setShowAIChat] = useState(false);
   const { toast } = useToast();
 
   const addToCart = (product: Product) => {
@@ -52,15 +60,6 @@ const Index = () => {
     });
   };
 
-  const handleExploreClick = () => {
-    document.getElementById('flowers')?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  const handleMenuClick = () => {
-    // Could implement mobile menu here
-    console.log('Menu clicked');
-  };
-
   const handleCheckout = () => {
     setIsCartOpen(false);
     setIsCheckoutOpen(true);
@@ -70,46 +69,93 @@ const Index = () => {
     setCartItems([]);
     toast({
       title: "Order placed successfully!",
-      description: "Thank you for your order. We'll send you a confirmation email soon.",
+      description: "Thank you for your order. We'll contact you soon for delivery confirmation.",
     });
   };
 
   const cartItemCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
-  const cartTotal = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-gradient-to-br from-pink-50 via-peach-50 to-coral-50">
       <Header 
         cartItems={cartItemCount}
         onCartClick={() => setIsCartOpen(true)}
-        onMenuClick={handleMenuClick}
+        onMenuClick={() => console.log('Menu clicked')}
       />
       
-      <main>
-        <Hero onExploreClick={handleExploreClick} />
-        <ProductGrid onAddToCart={addToCart} />
-        
-        <section id="ai-expert" className="py-16 bg-background">
-          <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="text-center mb-12">
-              <h2 className="text-3xl sm:text-4xl font-serif font-bold text-foreground mb-4">
-                AI Flower Expert
-              </h2>
-              <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-                Get personalized flower recommendations from our AI expert. 
-                Ask about occasions, flower meanings, care tips, and more!
-              </p>
-            </div>
-            <AIChat />
+      <main className="container mx-auto px-4 py-8">
+        {/* Hero Section */}
+        <section className="text-center mb-12">
+          <div className="flex items-center justify-center gap-3 mb-6">
+            <img 
+              src="/lovable-uploads/e7ebc54a-3544-46fa-888c-a469076505c8.png" 
+              alt="Happy Flower" 
+              className="h-16 w-16"
+            />
+            <h1 className="text-4xl md:text-6xl font-serif font-bold text-gray-800">
+              Happy Flower
+            </h1>
+          </div>
+          <p className="text-xl text-gray-600 mb-8 max-w-2xl mx-auto">
+            Beautiful flowers for every occasion. Ask our AI expert for personalized recommendations!
+          </p>
+          
+          <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+            <Button 
+              onClick={() => setShowAIChat(!showAIChat)}
+              className="bg-coral-400 hover:bg-coral-500 text-white px-8 py-3 text-lg"
+            >
+              <MessageCircle className="h-5 w-5 mr-2" />
+              {showAIChat ? 'Hide AI Expert' : 'Ask AI Expert'}
+            </Button>
+            <Button 
+              variant="outline"
+              onClick={() => document.getElementById('products')?.scrollIntoView({ behavior: 'smooth' })}
+              className="border-coral-300 text-coral-600 hover:bg-coral-50 px-8 py-3 text-lg"
+            >
+              <Flower2 className="h-5 w-5 mr-2" />
+              Browse Flowers
+            </Button>
           </div>
         </section>
 
-        <About />
-        <Contact />
+        {/* AI Chat Section */}
+        {showAIChat && (
+          <section className="mb-12">
+            <div className="max-w-2xl mx-auto">
+              <h2 className="text-2xl font-serif font-bold text-center mb-6">
+                AI Flower Expert
+              </h2>
+              <AIFlowerChat />
+            </div>
+          </section>
+        )}
+
+        {/* Products Section */}
+        <section id="products" className="mb-12">
+          <h2 className="text-3xl font-serif font-bold text-center mb-8">
+            Our Beautiful Collection
+          </h2>
+          <FlowerProducts onAddToCart={addToCart} cartItems={cartItems} />
+        </section>
+
+        {/* Simple Footer */}
+        <footer className="text-center py-8 border-t border-coral-200 mt-12">
+          <div className="flex items-center justify-center gap-2 mb-4">
+            <img 
+              src="/lovable-uploads/e7ebc54a-3544-46fa-888c-a469076505c8.png" 
+              alt="Happy Flower" 
+              className="h-8 w-8"
+            />
+            <span className="font-serif text-xl font-semibold text-coral-600">Happy Flower</span>
+          </div>
+          <p className="text-gray-600">
+            Beautiful flowers delivered with love • Payment on delivery
+          </p>
+        </footer>
       </main>
 
-      <Footer />
-
+      {/* Cart Drawer */}
       <CartDrawer
         isOpen={isCartOpen}
         onClose={() => setIsCartOpen(false)}
@@ -119,13 +165,27 @@ const Index = () => {
         onCheckout={handleCheckout}
       />
 
-      <CheckoutModal
+      {/* Checkout Modal */}
+      <SimpleCheckout
         isOpen={isCheckoutOpen}
         onClose={() => setIsCheckoutOpen(false)}
         items={cartItems}
-        total={cartTotal}
         onOrderComplete={handleOrderComplete}
       />
+
+      {/* Floating Cart Button for Mobile */}
+      {cartItemCount > 0 && (
+        <Button
+          onClick={() => setIsCartOpen(true)}
+          className="fixed bottom-6 right-6 bg-coral-500 hover:bg-coral-600 text-white rounded-full p-4 shadow-lg md:hidden"
+          size="lg"
+        >
+          <ShoppingBag className="h-6 w-6" />
+          <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-6 w-6 flex items-center justify-center">
+            {cartItemCount}
+          </span>
+        </Button>
+      )}
     </div>
   );
 };
