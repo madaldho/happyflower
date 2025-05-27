@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import { Header } from '@/components/Header';
 import { AIFlowerChat } from '@/components/AIFlowerChat';
@@ -35,7 +34,12 @@ const Index = () => {
             : item
         );
       }
-      return [...prev, { ...product, quantity: 1 }];
+      return [...prev, { 
+        ...product, 
+        image: product.image_url,
+        rating: 4.8,
+        quantity: 1 
+      }];
     });
 
     toast({
@@ -169,7 +173,7 @@ const Index = () => {
       <SimpleCheckout
         isOpen={isCheckoutOpen}
         onClose={() => setIsCheckoutOpen(false)}
-        items={cartItems}
+        cartItems={cartItems}
         onOrderComplete={handleOrderComplete}
       />
 

@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -30,7 +29,7 @@ interface SimpleCheckoutProps {
   onOrderComplete: () => void;
 }
 
-export function SimpleCheckout({ isOpen, onClose, cartItems, onOrderComplete }: SimpleCheckoutProps) {
+export function SimpleCheckout({ isOpen, onClose, cartItems = [], onOrderComplete }: SimpleCheckoutProps) {
   const [customerInfo, setCustomerInfo] = useState({
     name: '',
     email: '',
