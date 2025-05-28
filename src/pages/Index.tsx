@@ -1,7 +1,7 @@
 
 import { useState } from 'react';
 import { Header } from '@/components/Header';
-import { AIFlowerChat } from '@/components/AIFlowerChat';
+import { EnhancedAIFlowerChat } from '@/components/EnhancedAIFlowerChat';
 import { FlowerProducts } from '@/components/FlowerProducts';
 import { CartDrawer, type CartItem } from '@/components/CartDrawer';
 import { SimpleCheckout } from '@/components/SimpleCheckout';
@@ -9,7 +9,9 @@ import { AuthModal } from '@/components/AuthModal';
 import { UserProfile } from '@/components/UserProfile';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { MessageCircle, Flower2, ShoppingBag, User, Sparkles } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
+import { MessageCircle, Flower2, ShoppingBag, User, Sparkles, Settings } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 interface Product {
   id: string;
@@ -20,13 +22,6 @@ interface Product {
   category: string;
 }
 
-interface User {
-  id: string;
-  name: string;
-  email: string;
-  avatar?: string;
-}
-
 const Index = () => {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
@@ -34,7 +29,7 @@ const Index = () => {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [showAIChat, setShowAIChat] = useState(false);
-  const [user, setUser] = useState<User | null>(null);
+  const { user, profile, isAdmin, isSeller, signOut } = useAuth();
   const { toast } = useToast();
 
   const addToCart = (product: Product) => {
@@ -48,7 +43,9 @@ const Index = () => {
         );
       }
       return [...prev, { 
-        ...product, 
+        id: product.id,
+        name: product.name,
+        price: product.price,
         image: product.image_url,
         rating: 4.8,
         quantity: 1 
@@ -90,13 +87,12 @@ const Index = () => {
     });
   };
 
-  const handleLogin = (userData: User) => {
-    setUser(userData);
+  const handleLogin = (userData: any) => {
     setIsAuthOpen(false);
   };
 
-  const handleLogout = () => {
-    setUser(null);
+  const handleLogout = async () => {
+    await signOut();
     setIsProfileOpen(false);
     toast({
       title: "Signed out",
@@ -125,14 +121,27 @@ const Index = () => {
             
             <div className="flex items-center gap-4">
               {user ? (
-                <Button
-                  variant="ghost"
-                  onClick={() => setIsProfileOpen(true)}
-                  className="flex items-center gap-2"
-                >
-                  <User className="h-4 w-4" />
-                  <span className="hidden sm:inline">{user.name}</span>
-                </Button>
+                <>
+                  {(isAdmin || isSeller) && (
+                    <Link to="/admin">
+                      <Button
+                        variant="outline"
+                        className="border-coral-300 text-coral-600 hover:bg-coral-50"
+                      >
+                        <Settings className="h-4 w-4 mr-2" />
+                        Admin
+                      </Button>
+                    </Link>
+                  )}
+                  <Button
+                    variant="ghost"
+                    onClick={() => setIsProfileOpen(true)}
+                    className="flex items-center gap-2"
+                  >
+                    <User className="h-4 w-4" />
+                    <span className="hidden sm:inline">{profile?.full_name || user.email}</span>
+                  </Button>
+                </>
               ) : (
                 <Button
                   variant="outline"
@@ -200,7 +209,7 @@ const Index = () => {
           
           {user && (
             <div className="mt-4 text-coral-600">
-              Welcome back, {user.name}! 👋
+              Welcome back, {profile?.full_name || user.email}! 👋
             </div>
           )}
         </section>
@@ -217,7 +226,7 @@ const Index = () => {
                   Get personalized recommendations, generate custom arrangements, and ask any flower-related questions!
                 </p>
               </div>
-              <AIFlowerChat />
+              <EnhancedAIFlowerChat onAddToCart={addToCart} />
             </div>
           </section>
         )}
@@ -305,7 +314,12 @@ const Index = () => {
       <UserProfile
         isOpen={isProfileOpen}
         onClose={() => setIsProfileOpen(false)}
-        user={user}
+        user={user ? {
+          id: user.id,
+          name: profile?.full_name || user.email || '',
+          email: user.email || '',
+          avatar: profile?.avatar_url
+        } : null}
         onLogout={handleLogout}
       />
 

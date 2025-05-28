@@ -9,6 +9,60 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      ai_training_data: {
+        Row: {
+          answer: string
+          category: string | null
+          created_at: string | null
+          created_by: string | null
+          id: string
+          question: string
+        }
+        Insert: {
+          answer: string
+          category?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          question: string
+        }
+        Update: {
+          answer?: string
+          category?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          question?: string
+        }
+        Relationships: []
+      }
+      generated_images: {
+        Row: {
+          created_at: string | null
+          id: string
+          image_url: string
+          prompt: string
+          status: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          image_url: string
+          prompt: string
+          status?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          image_url?: string
+          prompt?: string
+          status?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       order_items: {
         Row: {
           id: string
@@ -108,6 +162,54 @@ export type Database = {
           image_url?: string | null
           name?: string
           price?: number
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string | null
+          email: string
+          full_name: string | null
+          id: string
+          updated_at: string | null
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string | null
+          email: string
+          full_name?: string | null
+          id: string
+          updated_at?: string | null
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string | null
+          email?: string
+          full_name?: string | null
+          id?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      user_roles: {
+        Row: {
+          created_at: string | null
+          id: string
+          role: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          role: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          role?: string
+          user_id?: string | null
         }
         Relationships: []
       }
