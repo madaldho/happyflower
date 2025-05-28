@@ -43,7 +43,7 @@ Happy Flower is an innovative e-commerce platform that combines artificial intel
 1. Clone the repository:
    ```bash
    git clone https://github.com/yourusername/happyflower.git
-   cd bloom-ai-bouquets
+   cd happyflower
    ```
 
 2. Install dependencies:
@@ -93,7 +93,7 @@ The project uses Supabase as its backend. To set up the necessary tables:
 │   ├── integrations/       # Third-party service integrations
 │   │   └── supabase/       # Supabase client configuration
 │   ├── lib/                # Utility functions
-│   ├── pages/              # Next.js pages
+│   ├── pages/              # vite.js pages
 │   ├── styles/             # CSS styles
 │   └── types/              # TypeScript type definitions
 ├── supabase/
