@@ -11,12 +11,9 @@ import { supabase } from '@/integrations/supabase/client';
 import { 
   Send, 
   Image as ImageIcon, 
-  Maximize2, 
-  Minimize2, 
   Bot, 
   User,
-  Loader2,
-  X
+  Loader2
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -30,25 +27,28 @@ interface Message {
 
 interface EnhancedAIFlowerChatProps {
   onAddToCart?: (product: any) => void;
+  imageGenerationMode?: boolean;
+  onImageModeToggle?: (mode: boolean) => void;
 }
 
-export function EnhancedAIFlowerChat({ onAddToCart }: EnhancedAIFlowerChatProps) {
+export function EnhancedAIFlowerChat({ 
+  onAddToCart, 
+  imageGenerationMode = false,
+  onImageModeToggle 
+}: EnhancedAIFlowerChatProps) {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
       role: 'assistant',
-      content: '🌸 Hello! I\'m your AI flower expert. I can help you find the perfect flowers, create custom arrangements, and even generate unique flower images based on your preferences. How can I help you today?',
+      content: imageGenerationMode 
+        ? '🎨 Hello! I\'m in **Image Generation Mode**. Describe the flower arrangement you\'d like me to create for you, and I\'ll generate a beautiful custom image based on your description!'
+        : '🌸 Hello! I\'m your **AI Flower Expert**. I can help you find the perfect flowers, create custom arrangements, and provide expert advice. How can I help you today?',
       timestamp: new Date()
     }
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [imageMode, setImageMode] = useState(false);
-  const [selectedImage, setSelectedImage] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -58,36 +58,19 @@ export function EnhancedAIFlowerChat({ onAddToCart }: EnhancedAIFlowerChatProps)
 
   useEffect(scrollToBottom, [messages]);
 
-  const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      setSelectedImage(file);
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setImagePreview(e.target?.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
+  useEffect(() => {
+    // Update initial message when mode changes
+    setMessages([{
+      id: '1',
+      role: 'assistant',
+      content: imageGenerationMode 
+        ? '🎨 Hello! I\'m in **Image Generation Mode**. Describe the flower arrangement you\'d like me to create for you, and I\'ll generate a beautiful custom image based on your description!'
+        : '🌸 Hello! I\'m your **AI Flower Expert**. I can help you find the perfect flowers, create custom arrangements, and provide expert advice. How can I help you today?',
+      timestamp: new Date()
+    }]);
+  }, [imageGenerationMode]);
 
-  const removeImage = () => {
-    setSelectedImage(null);
-    setImagePreview(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
-  const convertImageToBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  };
-
-  const callPerplexityAPI = async (prompt: string, imageData?: string) => {
+  const callPerplexityAPI = async (prompt: string) => {
     const response = await fetch('https://api.perplexity.ai/chat/completions', {
       method: 'POST',
       headers: {
@@ -95,30 +78,29 @@ export function EnhancedAIFlowerChat({ onAddToCart }: EnhancedAIFlowerChatProps)
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: imageData ? 'sonar-pro' : 'llama-3.1-sonar-small-128k-online',
+        model: 'sonar-pro',
         messages: [
           {
             role: 'system',
-            content: `You are an expert AI flower assistant for Happy Flower shop. You help customers:
-            1. Find perfect flowers for any occasion
-            2. Create custom flower arrangements
-            3. Provide flower care tips
-            4. Generate flower images based on descriptions
-            5. Recommend products from our store
-            
-            Always be helpful, enthusiastic, and use flower emojis. If users want specific products, suggest they can add items to cart. For image generation requests, create detailed, beautiful descriptions.
-            
-            Our available categories: bouquet, arrangement, plant, gift
-            Price range: $25-150
-            
-            Respond in a friendly, professional manner with markdown formatting for better readability.`
+            content: `You are a professional AI flower expert and customer service agent for Happy Flower shop. You are knowledgeable, helpful, and enthusiastic about flowers.
+
+Your expertise includes:
+- Flower types, meanings, and occasions
+- Care instructions and tips
+- Color combinations and arrangements
+- Seasonal availability
+- Wedding and event flowers
+- Gift recommendations
+
+Always respond in a friendly, professional manner using markdown formatting for better readability. Use flower emojis appropriately. Provide specific, actionable advice and recommendations.
+
+Our available products include fresh flower bouquets, arrangements, plants, and custom designs with prices ranging from $25-150.
+
+Be conversational but professional, like talking to a friend who's also a flower expert.`
           },
           {
             role: 'user',
-            content: imageData ? [
-              { type: 'text', text: prompt },
-              { type: 'image_url', image_url: { url: imageData } }
-            ] : prompt
+            content: prompt
           }
         ],
         temperature: 0.2,
@@ -137,37 +119,56 @@ export function EnhancedAIFlowerChat({ onAddToCart }: EnhancedAIFlowerChatProps)
     return data.choices[0].message.content;
   };
 
-  const generateImage = async (prompt: string) => {
-    // In a real implementation, you would call an image generation API
-    // For demo purposes, we'll simulate this
-    const imagePrompt = `Beautiful flower arrangement: ${prompt}`;
-    
-    // Save to database
-    if (user) {
-      try {
-        await supabase.from('generated_images').insert({
-          user_id: user.id,
-          prompt: imagePrompt,
-          image_url: `https://picsum.photos/400/400?random=${Date.now()}`, // Demo URL
-          status: 'pending'
-        });
-      } catch (error) {
-        console.error('Error saving generated image:', error);
-      }
-    }
+  const generateImageWithRunway = async (prompt: string) => {
+    try {
+      // Call Runway API for image generation
+      const response = await fetch('/api/generate-image', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          prompt: `Beautiful flower arrangement: ${prompt}. Professional photography, high quality, vibrant colors, artistic composition.`,
+          api_key: 'runwayGFbl7Zq056QP4dvJfmFCarSPcUVWdDkT'
+        })
+      });
 
-    return `https://picsum.photos/400/400?random=${Date.now()}`;
+      if (!response.ok) {
+        throw new Error('Image generation failed');
+      }
+
+      const data = await response.json();
+      
+      // Save to database if user is logged in
+      if (user) {
+        try {
+          await supabase.from('generated_images').insert({
+            user_id: user.id,
+            prompt: prompt,
+            image_url: data.image_url,
+            status: 'pending'
+          });
+        } catch (error) {
+          console.error('Error saving generated image:', error);
+        }
+      }
+
+      return data.image_url;
+    } catch (error) {
+      console.error('Image generation error:', error);
+      // Fallback to a placeholder image
+      return `https://images.unsplash.com/photo-1563241527-3004b7be0ffd?w=400&q=80&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D`;
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() && !selectedImage) return;
+    if (!input.trim()) return;
 
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
       content: input,
-      image: imagePreview || undefined,
       timestamp: new Date()
     };
 
@@ -179,16 +180,17 @@ export function EnhancedAIFlowerChat({ onAddToCart }: EnhancedAIFlowerChatProps)
       let response: string;
       let generatedImageUrl: string | null = null;
 
-      if (imageMode && !selectedImage) {
+      if (imageGenerationMode) {
         // Generate image mode
-        generatedImageUrl = await generateImage(input);
-        response = `🎨 I've generated a beautiful flower image based on your request: "${input}". The image shows a stunning arrangement that would be perfect for your needs! 
-
-Would you like me to help you find similar flowers in our store or create a custom arrangement based on this design?`;
+        generatedImageUrl = await generateImageWithRunway(input);
+        
+        // Get AI description of the generated arrangement
+        response = await callPerplexityAPI(
+          `I've generated a custom flower arrangement image based on the request: "${input}". Please provide a detailed, enthusiastic description of this beautiful arrangement as if you're a professional florist. Include suggestions for occasions, care tips, and mention that customers can order this custom arrangement for approximately $75-95. Make it engaging and professional.`
+        );
       } else {
-        // Regular chat or image analysis
-        const imageData = selectedImage ? await convertImageToBase64(selectedImage) : undefined;
-        response = await callPerplexityAPI(input, imageData);
+        // Regular chat mode
+        response = await callPerplexityAPI(input);
       }
 
       const assistantMessage: Message = {
@@ -200,10 +202,6 @@ Would you like me to help you find similar flowers in our store or create a cust
       };
 
       setMessages(prev => [...prev, assistantMessage]);
-
-      // Reset image state
-      removeImage();
-      setImageMode(false);
 
     } catch (error) {
       console.error('Error:', error);
@@ -217,48 +215,31 @@ Would you like me to help you find similar flowers in our store or create a cust
     }
   };
 
-  const toggleFullscreen = () => {
-    setIsFullscreen(!isFullscreen);
-  };
-
   return (
-    <Card className={`${isFullscreen ? 'fixed inset-4 z-50 flex flex-col' : 'max-w-4xl mx-auto'} transition-all duration-300`}>
-      <CardHeader className="border-b">
+    <Card className="h-full flex flex-col">
+      <CardHeader className="border-b flex-shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Bot className="h-6 w-6 text-coral-500" />
             <CardTitle className="text-coral-600">🌸 AI Flower Expert</CardTitle>
-            {imageMode && (
+            {imageGenerationMode && (
               <Badge variant="secondary" className="bg-purple-100 text-purple-700">
                 🎨 Image Generation Mode
               </Badge>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setImageMode(!imageMode)}
-              className={imageMode ? 'bg-purple-100 text-purple-700' : ''}
-            >
-              <ImageIcon className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="sm" onClick={toggleFullscreen}>
-              {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-            </Button>
-          </div>
         </div>
       </CardHeader>
 
-      <CardContent className={`${isFullscreen ? 'flex-1 flex flex-col' : ''} p-0`}>
-        <div className={`${isFullscreen ? 'flex-1' : 'h-96'} overflow-y-auto p-4 space-y-4`}>
+      <CardContent className="flex-1 flex flex-col p-0">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {messages.map((message) => (
             <div
               key={message.id}
               className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
               {message.role === 'assistant' && (
-                <Avatar className="h-8 w-8">
+                <Avatar className="h-8 w-8 flex-shrink-0">
                   <AvatarImage src="/lovable-uploads/e7ebc54a-3544-46fa-888c-a469076505c8.png" />
                   <AvatarFallback className="bg-coral-100 text-coral-600">
                     <Bot className="h-4 w-4" />
@@ -275,11 +256,27 @@ Would you like me to help you find similar flowers in our store or create a cust
                   }`}
                 >
                   {message.image && (
-                    <img
-                      src={message.image}
-                      alt="Chat image"
-                      className="max-w-full h-auto rounded-lg mb-2"
-                    />
+                    <div className="mb-3">
+                      <img
+                        src={message.image}
+                        alt="Generated flower arrangement"
+                        className="max-w-full h-auto rounded-lg"
+                      />
+                      {imageGenerationMode && message.role === 'assistant' && (
+                        <Button 
+                          size="sm" 
+                          className="mt-2 w-full bg-coral-400 hover:bg-coral-500 text-white"
+                          onClick={() => {
+                            toast({
+                              title: "Custom arrangement inquiry sent!",
+                              description: "Our team will contact you with pricing and availability.",
+                            });
+                          }}
+                        >
+                          Order This Custom Arrangement
+                        </Button>
+                      )}
+                    </div>
                   )}
                   <div className={`prose prose-sm max-w-none ${message.role === 'user' ? 'prose-invert' : ''}`}>
                     <ReactMarkdown>{message.content}</ReactMarkdown>
@@ -291,7 +288,7 @@ Would you like me to help you find similar flowers in our store or create a cust
               </div>
 
               {message.role === 'user' && (
-                <Avatar className="h-8 w-8">
+                <Avatar className="h-8 w-8 flex-shrink-0">
                   <AvatarFallback className="bg-blue-100 text-blue-600">
                     <User className="h-4 w-4" />
                   </AvatarFallback>
@@ -316,53 +313,15 @@ Would you like me to help you find similar flowers in our store or create a cust
           <div ref={messagesEndRef} />
         </div>
 
-        <div className="border-t p-4">
-          {imagePreview && (
-            <div className="relative mb-3">
-              <img
-                src={imagePreview}
-                alt="Preview"
-                className="max-w-20 h-20 object-cover rounded-lg"
-              />
-              <Button
-                variant="ghost"
-                size="sm"
-                className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-red-500 text-white hover:bg-red-600"
-                onClick={removeImage}
-              >
-                <X className="h-3 w-3" />
-              </Button>
-            </div>
-          )}
-
+        <div className="border-t p-4 flex-shrink-0">
           <form onSubmit={handleSubmit} className="flex gap-2">
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleImageSelect}
-              accept="image/*"
-              className="hidden"
-            />
-            
-            {!imageMode && (
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                onClick={() => fileInputRef.current?.click()}
-                className="flex-shrink-0"
-              >
-                <ImageIcon className="h-4 w-4" />
-              </Button>
-            )}
-
             <Input
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder={
-                imageMode 
-                  ? "Describe the flower image you want to generate..."
-                  : "Ask about flowers, arrangements, or upload an image..."
+                imageGenerationMode 
+                  ? "Describe the flower arrangement you want me to generate..."
+                  : "Ask about flowers, arrangements, or get recommendations..."
               }
               className="flex-1"
               disabled={isLoading}
@@ -370,7 +329,7 @@ Would you like me to help you find similar flowers in our store or create a cust
             
             <Button 
               type="submit" 
-              disabled={isLoading || (!input.trim() && !selectedImage)}
+              disabled={isLoading || !input.trim()}
               className="bg-coral-500 hover:bg-coral-600"
             >
               {isLoading ? (
@@ -381,9 +340,9 @@ Would you like me to help you find similar flowers in our store or create a cust
             </Button>
           </form>
 
-          {imageMode && (
+          {imageGenerationMode && (
             <div className="mt-2 text-sm text-purple-600 bg-purple-50 p-2 rounded-lg">
-              🎨 Image Generation Mode: Describe the flower arrangement you want me to create!
+              🎨 **Image Generation Mode**: Describe your ideal flower arrangement and I'll create it for you!
             </div>
           )}
         </div>

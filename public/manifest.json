@@ -1,0 +1,28 @@
+
+{
+  "name": "Happy Flower - AI Flower Shop",
+  "short_name": "Happy Flower",
+  "description": "Beautiful flowers with AI-powered recommendations and custom arrangements",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fef2f2",
+  "theme_color": "#fb7185",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/lovable-uploads/e7ebc54a-3544-46fa-888c-a469076505c8.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/lovable-uploads/e7ebc54a-3544-46fa-888c-a469076505c8.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "categories": ["shopping", "lifestyle"],
+  "lang": "en",
+  "dir": "ltr"
+}

@@ -19,7 +19,10 @@ export interface CartItem {
   id: string;
   name: string;
   price: number;
+  image_url: string;
   image: string;
+  description: string;
+  category: string;
   rating: number;
   quantity: number;
 }
@@ -55,5 +58,17 @@ export interface GeneratedImage {
   prompt: string;
   image_url: string;
   status: 'pending' | 'approved' | 'rejected';
+  created_at: string;
+}
+
+export interface CustomOrder {
+  id: string;
+  user_id: string;
+  generated_image_id: string;
+  price_range_min?: number;
+  price_range_max?: number;
+  final_price?: number;
+  status: 'pending_review' | 'price_provided' | 'confirmed' | 'completed';
+  seller_notes?: string;
   created_at: string;
 }

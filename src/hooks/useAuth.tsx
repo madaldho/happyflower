@@ -2,7 +2,7 @@
 import { useState, useEffect, createContext, useContext } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { User, Session } from '@supabase/supabase-js';
-import { Profile, UserRole } from '@/types';
+import type { Profile, UserRole } from '@/types';
 
 interface AuthContextType {
   user: User | null;
@@ -67,14 +67,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .eq('id', userId)
         .single();
 
-      // Load user roles
+      // Load user roles with proper typing
       const { data: rolesData } = await supabase
         .from('user_roles')
         .select('*')
         .eq('user_id', userId);
 
       setProfile(profileData);
-      setUserRoles(rolesData || []);
+      setUserRoles((rolesData || []) as UserRole[]);
     } catch (error) {
       console.error('Error loading user data:', error);
     } finally {
@@ -84,11 +84,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = async () => {
     try {
-      await supabase.auth.signOut();
+      // Clean up auth state
+      Object.keys(localStorage).forEach((key) => {
+        if (key.startsWith('supabase.auth.') || key.includes('sb-')) {
+          localStorage.removeItem(key);
+        }
+      });
+      
+      await supabase.auth.signOut({ scope: 'global' });
       setUser(null);
       setSession(null);
       setProfile(null);
       setUserRoles([]);
+      
+      // Force page reload for clean state
+      window.location.href = '/';
     } catch (error) {
       console.error('Error signing out:', error);
     }

@@ -3,15 +3,15 @@ import { useState } from 'react';
 import { Header } from '@/components/Header';
 import { EnhancedAIFlowerChat } from '@/components/EnhancedAIFlowerChat';
 import { FlowerProducts } from '@/components/FlowerProducts';
-import { CartDrawer, type CartItem } from '@/components/CartDrawer';
-import { SimpleCheckout } from '@/components/SimpleCheckout';
+import { CartDrawer } from '@/components/CartDrawer';
 import { AuthModal } from '@/components/AuthModal';
 import { UserProfile } from '@/components/UserProfile';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { MessageCircle, Flower2, ShoppingBag, User, Sparkles, Settings } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import type { CartItem } from '@/types';
 
 interface Product {
   id: string;
@@ -23,9 +23,9 @@ interface Product {
 }
 
 const Index = () => {
+  const navigate = useNavigate();
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
-  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [showAIChat, setShowAIChat] = useState(false);
@@ -46,7 +46,10 @@ const Index = () => {
         id: product.id,
         name: product.name,
         price: product.price,
+        image_url: product.image_url,
         image: product.image_url,
+        description: product.description,
+        category: product.category,
         rating: 4.8,
         quantity: 1 
       }];
@@ -76,14 +79,17 @@ const Index = () => {
 
   const handleCheckout = () => {
     setIsCartOpen(false);
-    setIsCheckoutOpen(true);
-  };
-
-  const handleOrderComplete = () => {
-    setCartItems([]);
-    toast({
-      title: "Order placed successfully!",
-      description: "Thank you for your order. We'll contact you soon for delivery confirmation.",
+    navigate('/checkout', { 
+      state: { 
+        cartItems, 
+        onOrderComplete: () => {
+          setCartItems([]);
+          toast({
+            title: "Order placed successfully!",
+            description: "Thank you for your order. We'll contact you soon!",
+          });
+        }
+      } 
     });
   };
 
@@ -145,7 +151,7 @@ const Index = () => {
               ) : (
                 <Button
                   variant="outline"
-                  onClick={() => setIsAuthOpen(true)}
+                  onClick={() => navigate('/auth')}
                   className="border-coral-300 text-coral-600 hover:bg-coral-50"
                 >
                   <User className="h-4 w-4 mr-2" />
@@ -191,11 +197,11 @@ const Index = () => {
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
             <Button 
-              onClick={() => setShowAIChat(!showAIChat)}
+              onClick={() => navigate('/chat')}
               className="bg-gradient-to-r from-coral-400 to-pink-500 hover:from-coral-500 hover:to-pink-600 text-white px-8 py-3 text-lg shadow-lg"
             >
               <MessageCircle className="h-5 w-5 mr-2" />
-              {showAIChat ? 'Hide AI Assistant' : '🤖 Chat with AI Expert'}
+              🤖 Chat with AI Expert
             </Button>
             <Button 
               variant="outline"
@@ -296,13 +302,6 @@ const Index = () => {
         onUpdateQuantity={updateQuantity}
         onRemoveItem={removeItem}
         onCheckout={handleCheckout}
-      />
-
-      <SimpleCheckout
-        isOpen={isCheckoutOpen}
-        onClose={() => setIsCheckoutOpen(false)}
-        cartItems={cartItems}
-        onOrderComplete={handleOrderComplete}
       />
 
       <AuthModal
