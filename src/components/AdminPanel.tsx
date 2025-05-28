@@ -7,60 +7,43 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useToast } from '@/hooks/use-toast';
-import { useAuth } from '@/hooks/useAuth';
+import { Plus, Edit, Trash2, Check, X, Image } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
-import { 
-  Plus, 
-  Edit, 
-  Trash2, 
-  Image as ImageIcon, 
-  Package, 
-  Brain,
-  CheckCircle,
-  XCircle,
-  Eye
-} from 'lucide-react';
-import { Product, AITrainingData, GeneratedImage } from '@/types';
+import { useToast } from '@/hooks/use-toast';
+import type { Product, GeneratedImage, AITrainingData, Order } from '@/types';
 
 export function AdminPanel() {
   const [products, setProducts] = useState<Product[]>([]);
-  const [aiTrainingData, setAiTrainingData] = useState<AITrainingData[]>([]);
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
-  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [trainingData, setTrainingData] = useState<AITrainingData[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const { toast } = useToast();
+
   const [newProduct, setNewProduct] = useState({
     name: '',
     price: 0,
     description: '',
-    category: 'bouquet',
+    category: 'flowers',
     image_url: ''
   });
+
   const [newTraining, setNewTraining] = useState({
     question: '',
     answer: '',
     category: 'general'
   });
 
-  const { user, isAdmin, isSeller } = useAuth();
-  const { toast } = useToast();
-
   useEffect(() => {
-    if (isAdmin || isSeller) {
-      loadData();
-    }
-  }, [isAdmin, isSeller]);
+    loadData();
+  }, []);
 
   const loadData = async () => {
+    setIsLoading(true);
     try {
       // Load products
       const { data: productsData } = await supabase
         .from('products')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      // Load AI training data
-      const { data: trainingData } = await supabase
-        .from('ai_training_data')
         .select('*')
         .order('created_at', { ascending: false });
 
@@ -70,20 +53,40 @@ export function AdminPanel() {
         .select('*')
         .order('created_at', { ascending: false });
 
+      // Load training data
+      const { data: trainingDataRes } = await supabase
+        .from('ai_training_data')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      // Load orders
+      const { data: ordersData } = await supabase
+        .from('orders')
+        .select('*')
+        .order('created_at', { ascending: false });
+
       setProducts(productsData || []);
-      setAiTrainingData(trainingData || []);
-      setGeneratedImages(imagesData || []);
+      setGeneratedImages((imagesData || []).map(img => ({
+        ...img,
+        status: img.status as 'pending' | 'approved' | 'rejected'
+      })));
+      setTrainingData(trainingDataRes || []);
+      setOrders(ordersData || []);
     } catch (error) {
       console.error('Error loading data:', error);
       toast({
         title: "Error",
         description: "Failed to load admin data",
-        variant: "destructive",
+        variant: "destructive"
       });
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handleAddProduct = async () => {
+  const addProduct = async () => {
+    if (!newProduct.name || !newProduct.price) return;
+
     try {
       const { data, error } = await supabase
         .from('products')
@@ -98,55 +101,87 @@ export function AdminPanel() {
         name: '',
         price: 0,
         description: '',
-        category: 'bouquet',
+        category: 'flowers',
         image_url: ''
       });
 
       toast({
         title: "Success",
-        description: "Product added successfully",
+        description: "Product added successfully"
       });
     } catch (error) {
       console.error('Error adding product:', error);
       toast({
         title: "Error",
         description: "Failed to add product",
-        variant: "destructive",
+        variant: "destructive"
       });
     }
   };
 
-  const handleUpdateProduct = async () => {
-    if (!editingProduct) return;
+  const addTrainingData = async () => {
+    if (!newTraining.question || !newTraining.answer) return;
 
     try {
-      const { error } = await supabase
-        .from('products')
-        .update(editingProduct)
-        .eq('id', editingProduct.id);
+      const { data, error } = await supabase
+        .from('ai_training_data')
+        .insert([newTraining])
+        .select()
+        .single();
 
       if (error) throw error;
 
-      setProducts(prev => 
-        prev.map(p => p.id === editingProduct.id ? editingProduct : p)
-      );
-      setEditingProduct(null);
+      setTrainingData(prev => [data, ...prev]);
+      setNewTraining({
+        question: '',
+        answer: '',
+        category: 'general'
+      });
 
       toast({
         title: "Success",
-        description: "Product updated successfully",
+        description: "Training data added successfully"
       });
     } catch (error) {
-      console.error('Error updating product:', error);
+      console.error('Error adding training data:', error);
       toast({
         title: "Error",
-        description: "Failed to update product",
-        variant: "destructive",
+        description: "Failed to add training data",
+        variant: "destructive"
       });
     }
   };
 
-  const handleDeleteProduct = async (productId: string) => {
+  const updateImageStatus = async (imageId: string, status: 'approved' | 'rejected') => {
+    try {
+      const { error } = await supabase
+        .from('generated_images')
+        .update({ status })
+        .eq('id', imageId);
+
+      if (error) throw error;
+
+      setGeneratedImages(prev =>
+        prev.map(img =>
+          img.id === imageId ? { ...img, status } : img
+        )
+      );
+
+      toast({
+        title: "Success",
+        description: `Image ${status} successfully`
+      });
+    } catch (error) {
+      console.error('Error updating image status:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update image status",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const deleteProduct = async (productId: string) => {
     try {
       const { error } = await supabase
         .from('products')
@@ -156,155 +191,54 @@ export function AdminPanel() {
       if (error) throw error;
 
       setProducts(prev => prev.filter(p => p.id !== productId));
-
       toast({
         title: "Success",
-        description: "Product deleted successfully",
+        description: "Product deleted successfully"
       });
     } catch (error) {
       console.error('Error deleting product:', error);
       toast({
         title: "Error",
         description: "Failed to delete product",
-        variant: "destructive",
+        variant: "destructive"
       });
     }
   };
-
-  const handleAddTraining = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('ai_training_data')
-        .insert([{ ...newTraining, created_by: user?.id }])
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      setAiTrainingData(prev => [data, ...prev]);
-      setNewTraining({
-        question: '',
-        answer: '',
-        category: 'general'
-      });
-
-      toast({
-        title: "Success",
-        description: "Training data added successfully",
-      });
-    } catch (error) {
-      console.error('Error adding training data:', error);
-      toast({
-        title: "Error",
-        description: "Failed to add training data",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleUpdateImageStatus = async (imageId: string, status: 'approved' | 'rejected') => {
-    try {
-      const { error } = await supabase
-        .from('generated_images')
-        .update({ status })
-        .eq('id', imageId);
-
-      if (error) throw error;
-
-      setGeneratedImages(prev => 
-        prev.map(img => img.id === imageId ? { ...img, status } : img)
-      );
-
-      toast({
-        title: "Success",
-        description: `Image ${status} successfully`,
-      });
-    } catch (error) {
-      console.error('Error updating image status:', error);
-      toast({
-        title: "Error",
-        description: "Failed to update image status",
-        variant: "destructive",
-      });
-    }
-  };
-
-  if (!isAdmin && !isSeller) {
-    return (
-      <div className="text-center py-8">
-        <h2 className="text-2xl font-bold text-gray-800 mb-4">Access Denied</h2>
-        <p className="text-gray-600">You don't have permission to access the admin panel.</p>
-      </div>
-    );
-  }
 
   return (
-    <div className="max-w-6xl mx-auto p-6">
-      <h1 className="text-3xl font-bold text-coral-600 mb-6">Admin Panel</h1>
+    <div className="max-w-6xl mx-auto p-6 space-y-6">
+      <h1 className="text-3xl font-bold">Admin Panel</h1>
 
-      <Tabs defaultValue="products" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="products">
-            <Package className="h-4 w-4 mr-2" />
-            Products
-          </TabsTrigger>
-          <TabsTrigger value="ai-training">
-            <Brain className="h-4 w-4 mr-2" />
-            AI Training
-          </TabsTrigger>
-          <TabsTrigger value="generated-images">
-            <ImageIcon className="h-4 w-4 mr-2" />
-            Generated Images
-          </TabsTrigger>
+      <Tabs defaultValue="products" className="w-full">
+        <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="products">Products</TabsTrigger>
+          <TabsTrigger value="images">Generated Images</TabsTrigger>
+          <TabsTrigger value="training">AI Training</TabsTrigger>
+          <TabsTrigger value="orders">Orders</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="products" className="space-y-6">
+        <TabsContent value="products" className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle>Add New Product</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="name">Product Name</Label>
                   <Input
                     id="name"
                     value={newProduct.name}
                     onChange={(e) => setNewProduct(prev => ({ ...prev, name: e.target.value }))}
-                    placeholder="Beautiful Rose Bouquet"
                   />
                 </div>
                 <div>
-                  <Label htmlFor="price">Price ($)</Label>
+                  <Label htmlFor="price">Price</Label>
                   <Input
                     id="price"
                     type="number"
                     value={newProduct.price}
                     onChange={(e) => setNewProduct(prev => ({ ...prev, price: Number(e.target.value) }))}
-                    placeholder="49.99"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="category">Category</Label>
-                  <select
-                    id="category"
-                    value={newProduct.category}
-                    onChange={(e) => setNewProduct(prev => ({ ...prev, category: e.target.value }))}
-                    className="w-full p-2 border rounded-md"
-                  >
-                    <option value="bouquet">Bouquet</option>
-                    <option value="arrangement">Arrangement</option>
-                    <option value="plant">Plant</option>
-                    <option value="gift">Gift</option>
-                  </select>
-                </div>
-                <div>
-                  <Label htmlFor="image_url">Image URL</Label>
-                  <Input
-                    id="image_url"
-                    value={newProduct.image_url}
-                    onChange={(e) => setNewProduct(prev => ({ ...prev, image_url: e.target.value }))}
-                    placeholder="https://example.com/image.jpg"
                   />
                 </div>
               </div>
@@ -314,10 +248,17 @@ export function AdminPanel() {
                   id="description"
                   value={newProduct.description}
                   onChange={(e) => setNewProduct(prev => ({ ...prev, description: e.target.value }))}
-                  placeholder="Beautiful arrangement perfect for any occasion..."
                 />
               </div>
-              <Button onClick={handleAddProduct} className="bg-coral-500 hover:bg-coral-600">
+              <div>
+                <Label htmlFor="image_url">Image URL</Label>
+                <Input
+                  id="image_url"
+                  value={newProduct.image_url}
+                  onChange={(e) => setNewProduct(prev => ({ ...prev, image_url: e.target.value }))}
+                />
+              </div>
+              <Button onClick={addProduct}>
                 <Plus className="h-4 w-4 mr-2" />
                 Add Product
               </Button>
@@ -331,27 +272,21 @@ export function AdminPanel() {
                   <img
                     src={product.image_url}
                     alt={product.name}
-                    className="w-full h-40 object-cover rounded-lg mb-3"
+                    className="w-full h-32 object-cover rounded-md mb-3"
                   />
-                  <h3 className="font-semibold text-lg mb-2">{product.name}</h3>
-                  <p className="text-coral-600 font-bold mb-2">${product.price}</p>
-                  <Badge variant="secondary" className="mb-3">{product.category}</Badge>
-                  <p className="text-sm text-gray-600 mb-4 line-clamp-2">{product.description}</p>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setEditingProduct(product)}
-                    >
-                      <Edit className="h-3 w-3" />
+                  <h3 className="font-semibold">{product.name}</h3>
+                  <p className="text-coral-600 font-bold">${product.price}</p>
+                  <p className="text-sm text-muted-foreground mt-2">{product.description}</p>
+                  <div className="flex gap-2 mt-4">
+                    <Button size="sm" variant="outline">
+                      <Edit className="h-4 w-4" />
                     </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleDeleteProduct(product.id)}
-                      className="text-red-600 hover:text-red-700"
+                    <Button 
+                      size="sm" 
+                      variant="destructive"
+                      onClick={() => deleteProduct(product.id)}
                     >
-                      <Trash2 className="h-3 w-3" />
+                      <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
                 </CardContent>
@@ -360,65 +295,7 @@ export function AdminPanel() {
           </div>
         </TabsContent>
 
-        <TabsContent value="ai-training" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Add AI Training Data</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <Label htmlFor="question">Question</Label>
-                <Input
-                  id="question"
-                  value={newTraining.question}
-                  onChange={(e) => setNewTraining(prev => ({ ...prev, question: e.target.value }))}
-                  placeholder="What flowers are best for weddings?"
-                />
-              </div>
-              <div>
-                <Label htmlFor="answer">Answer</Label>
-                <Textarea
-                  id="answer"
-                  value={newTraining.answer}
-                  onChange={(e) => setNewTraining(prev => ({ ...prev, answer: e.target.value }))}
-                  placeholder="For weddings, I recommend white roses, peonies, and baby's breath..."
-                />
-              </div>
-              <div>
-                <Label htmlFor="training-category">Category</Label>
-                <Input
-                  id="training-category"
-                  value={newTraining.category}
-                  onChange={(e) => setNewTraining(prev => ({ ...prev, category: e.target.value }))}
-                  placeholder="weddings"
-                />
-              </div>
-              <Button onClick={handleAddTraining} className="bg-coral-500 hover:bg-coral-600">
-                <Plus className="h-4 w-4 mr-2" />
-                Add Training Data
-              </Button>
-            </CardContent>
-          </Card>
-
-          <div className="space-y-4">
-            {aiTrainingData.map((data) => (
-              <Card key={data.id}>
-                <CardContent className="p-4">
-                  <div className="flex justify-between items-start mb-2">
-                    <Badge variant="outline">{data.category}</Badge>
-                    <span className="text-sm text-gray-500">
-                      {new Date(data.created_at).toLocaleDateString()}
-                    </span>
-                  </div>
-                  <h3 className="font-semibold mb-2">Q: {data.question}</h3>
-                  <p className="text-gray-700">A: {data.answer}</p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </TabsContent>
-
-        <TabsContent value="generated-images" className="space-y-6">
+        <TabsContent value="images" className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {generatedImages.map((image) => (
               <Card key={image.id}>
@@ -426,41 +303,32 @@ export function AdminPanel() {
                   <img
                     src={image.image_url}
                     alt={image.prompt}
-                    className="w-full h-40 object-cover rounded-lg mb-3"
+                    className="w-full h-48 object-cover rounded-md mb-3"
                   />
-                  <p className="text-sm text-gray-600 mb-3 line-clamp-2">{image.prompt}</p>
-                  <div className="flex items-center justify-between mb-3">
-                    <Badge 
-                      variant={
-                        image.status === 'approved' ? 'default' : 
-                        image.status === 'rejected' ? 'destructive' : 'secondary'
-                      }
-                    >
-                      {image.status}
-                    </Badge>
-                    <span className="text-xs text-gray-500">
-                      {new Date(image.created_at).toLocaleDateString()}
-                    </span>
-                  </div>
+                  <p className="text-sm mb-2">{image.prompt}</p>
+                  <Badge 
+                    variant={
+                      image.status === 'approved' ? 'default' : 
+                      image.status === 'rejected' ? 'destructive' : 
+                      'secondary'
+                    }
+                  >
+                    {image.status}
+                  </Badge>
                   {image.status === 'pending' && (
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleUpdateImageStatus(image.id, 'approved')}
-                        className="text-green-600 hover:text-green-700"
+                    <div className="flex gap-2 mt-3">
+                      <Button 
+                        size="sm" 
+                        onClick={() => updateImageStatus(image.id, 'approved')}
                       >
-                        <CheckCircle className="h-3 w-3 mr-1" />
-                        Approve
+                        <Check className="h-4 w-4" />
                       </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleUpdateImageStatus(image.id, 'rejected')}
-                        className="text-red-600 hover:text-red-700"
+                      <Button 
+                        size="sm" 
+                        variant="destructive"
+                        onClick={() => updateImageStatus(image.id, 'rejected')}
                       >
-                        <XCircle className="h-3 w-3 mr-1" />
-                        Reject
+                        <X className="h-4 w-4" />
                       </Button>
                     </div>
                   )}
@@ -469,53 +337,72 @@ export function AdminPanel() {
             ))}
           </div>
         </TabsContent>
-      </Tabs>
 
-      {/* Edit Product Modal */}
-      {editingProduct && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <Card className="w-full max-w-md">
+        <TabsContent value="training" className="space-y-4">
+          <Card>
             <CardHeader>
-              <CardTitle>Edit Product</CardTitle>
+              <CardTitle>Add Training Data</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <Label htmlFor="edit-name">Product Name</Label>
+                <Label htmlFor="question">Question</Label>
                 <Input
-                  id="edit-name"
-                  value={editingProduct.name}
-                  onChange={(e) => setEditingProduct(prev => prev ? { ...prev, name: e.target.value } : null)}
+                  id="question"
+                  value={newTraining.question}
+                  onChange={(e) => setNewTraining(prev => ({ ...prev, question: e.target.value }))}
                 />
               </div>
               <div>
-                <Label htmlFor="edit-price">Price ($)</Label>
-                <Input
-                  id="edit-price"
-                  type="number"
-                  value={editingProduct.price}
-                  onChange={(e) => setEditingProduct(prev => prev ? { ...prev, price: Number(e.target.value) } : null)}
-                />
-              </div>
-              <div>
-                <Label htmlFor="edit-description">Description</Label>
+                <Label htmlFor="answer">Answer</Label>
                 <Textarea
-                  id="edit-description"
-                  value={editingProduct.description}
-                  onChange={(e) => setEditingProduct(prev => prev ? { ...prev, description: e.target.value } : null)}
+                  id="answer"
+                  value={newTraining.answer}
+                  onChange={(e) => setNewTraining(prev => ({ ...prev, answer: e.target.value }))}
                 />
               </div>
-              <div className="flex gap-2">
-                <Button onClick={handleUpdateProduct} className="bg-coral-500 hover:bg-coral-600">
-                  Update Product
-                </Button>
-                <Button variant="outline" onClick={() => setEditingProduct(null)}>
-                  Cancel
-                </Button>
-              </div>
+              <Button onClick={addTrainingData}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Training Data
+              </Button>
             </CardContent>
           </Card>
-        </div>
-      )}
+
+          <div className="space-y-4">
+            {trainingData.map((data) => (
+              <Card key={data.id}>
+                <CardContent className="p-4">
+                  <h3 className="font-semibold mb-2">Q: {data.question}</h3>
+                  <p className="text-muted-foreground">A: {data.answer}</p>
+                  <Badge variant="outline" className="mt-2">{data.category}</Badge>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="orders" className="space-y-4">
+          <div className="space-y-4">
+            {orders.map((order) => (
+              <Card key={order.id}>
+                <CardContent className="p-4">
+                  <div className="flex justify-between items-start mb-2">
+                    <div>
+                      <h3 className="font-semibold">{order.customer_name}</h3>
+                      <p className="text-sm text-muted-foreground">{order.customer_email}</p>
+                    </div>
+                    <Badge>{order.status}</Badge>
+                  </div>
+                  <p className="text-sm mb-2">{order.delivery_address}</p>
+                  <p className="font-semibold text-coral-600">${order.total_amount}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {new Date(order.created_at).toLocaleDateString()}
+                  </p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

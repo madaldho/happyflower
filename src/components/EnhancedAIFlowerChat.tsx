@@ -8,12 +8,14 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
+import { useNavigate } from 'react-router-dom';
 import { 
   Send, 
   Image as ImageIcon, 
   Bot, 
   User,
-  Loader2
+  Loader2,
+  LogIn
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -36,21 +38,13 @@ export function EnhancedAIFlowerChat({
   imageGenerationMode = false,
   onImageModeToggle 
 }: EnhancedAIFlowerChatProps) {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      role: 'assistant',
-      content: imageGenerationMode 
-        ? '🎨 Hello! I\'m in **Image Generation Mode**. Describe the flower arrangement you\'d like me to create for you, and I\'ll generate a beautiful custom image based on your description!'
-        : '🌸 Hello! I\'m your **AI Flower Expert**. I can help you find the perfect flowers, create custom arrangements, and provide expert advice. How can I help you today?',
-      timestamp: new Date()
-    }
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { user } = useAuth();
   const { toast } = useToast();
+  const navigate = useNavigate();
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -59,16 +53,25 @@ export function EnhancedAIFlowerChat({
   useEffect(scrollToBottom, [messages]);
 
   useEffect(() => {
-    // Update initial message when mode changes
-    setMessages([{
-      id: '1',
-      role: 'assistant',
-      content: imageGenerationMode 
-        ? '🎨 Hello! I\'m in **Image Generation Mode**. Describe the flower arrangement you\'d like me to create for you, and I\'ll generate a beautiful custom image based on your description!'
-        : '🌸 Hello! I\'m your **AI Flower Expert**. I can help you find the perfect flowers, create custom arrangements, and provide expert advice. How can I help you today?',
-      timestamp: new Date()
-    }]);
-  }, [imageGenerationMode]);
+    if (user) {
+      // Initialize with welcome message
+      setMessages([{
+        id: '1',
+        role: 'assistant',
+        content: imageGenerationMode 
+          ? '🎨 Hello! I\'m in **Image Generation Mode**. Describe the flower arrangement you\'d like me to create for you, and I\'ll generate a beautiful custom image based on your description!'
+          : '🌸 Hello! I\'m your **AI Flower Expert**. I can help you find the perfect flowers, create custom arrangements, and provide expert advice. How can I help you today?',
+        timestamp: new Date()
+      }]);
+    } else {
+      setMessages([{
+        id: '1',
+        role: 'assistant',
+        content: '🔒 Please log in to chat with our AI Flower Expert and access personalized recommendations.',
+        timestamp: new Date()
+      }]);
+    }
+  }, [imageGenerationMode, user]);
 
   const callPerplexityAPI = async (prompt: string) => {
     const response = await fetch('https://api.perplexity.ai/chat/completions', {
@@ -91,12 +94,13 @@ Your expertise includes:
 - Seasonal availability
 - Wedding and event flowers
 - Gift recommendations
+- Professional marketing and customer service
 
 Always respond in a friendly, professional manner using markdown formatting for better readability. Use flower emojis appropriately. Provide specific, actionable advice and recommendations.
 
 Our available products include fresh flower bouquets, arrangements, plants, and custom designs with prices ranging from $25-150.
 
-Be conversational but professional, like talking to a friend who's also a flower expert.`
+Be conversational but professional, like talking to a friend who's also a flower expert. Act as a professional marketing customer service agent.`
           },
           {
             role: 'user',
@@ -119,28 +123,20 @@ Be conversational but professional, like talking to a friend who's also a flower
     return data.choices[0].message.content;
   };
 
-  const generateImageWithRunway = async (prompt: string) => {
+  const generateImageWithRunware = async (prompt: string) => {
     try {
-      // Call Runway API for image generation
-      const response = await fetch('/api/generate-image', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          prompt: `Beautiful flower arrangement: ${prompt}. Professional photography, high quality, vibrant colors, artistic composition.`,
-          api_key: 'runwayGFbl7Zq056QP4dvJfmFCarSPcUVWdDkT'
-        })
+      const response = await supabase.functions.invoke('generate-image-runware', {
+        body: { prompt }
       });
 
-      if (!response.ok) {
-        throw new Error('Image generation failed');
+      if (response.error) {
+        throw new Error(response.error.message);
       }
 
-      const data = await response.json();
+      const data = response.data;
       
       // Save to database if user is logged in
-      if (user) {
+      if (user && data.image_url) {
         try {
           await supabase.from('generated_images').insert({
             user_id: user.id,
@@ -156,14 +152,22 @@ Be conversational but professional, like talking to a friend who's also a flower
       return data.image_url;
     } catch (error) {
       console.error('Image generation error:', error);
-      // Fallback to a placeholder image
-      return `https://images.unsplash.com/photo-1563241527-3004b7be0ffd?w=400&q=80&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D`;
+      throw error;
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim()) return;
+
+    if (!user) {
+      toast({
+        title: "Authentication Required",
+        description: "Please log in to chat with our AI expert.",
+        variant: "destructive"
+      });
+      return;
+    }
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -182,11 +186,11 @@ Be conversational but professional, like talking to a friend who's also a flower
 
       if (imageGenerationMode) {
         // Generate image mode
-        generatedImageUrl = await generateImageWithRunway(input);
+        generatedImageUrl = await generateImageWithRunware(input);
         
         // Get AI description of the generated arrangement
         response = await callPerplexityAPI(
-          `I've generated a custom flower arrangement image based on the request: "${input}". Please provide a detailed, enthusiastic description of this beautiful arrangement as if you're a professional florist. Include suggestions for occasions, care tips, and mention that customers can order this custom arrangement for approximately $75-95. Make it engaging and professional.`
+          `I've generated a custom flower arrangement image based on the request: "${input}". Please provide a detailed, enthusiastic description of this beautiful arrangement as if you're a professional florist. Include suggestions for occasions, care tips, and mention that customers can request a quote for this custom arrangement. Make it engaging and professional like a marketing customer service agent.`
         );
       } else {
         // Regular chat mode
@@ -214,6 +218,36 @@ Be conversational but professional, like talking to a friend who's also a flower
       setIsLoading(false);
     }
   };
+
+  if (!user) {
+    return (
+      <Card className="h-full flex flex-col">
+        <CardHeader className="border-b flex-shrink-0">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Bot className="h-6 w-6 text-coral-500" />
+              <CardTitle className="text-coral-600">🌸 AI Flower Expert</CardTitle>
+            </div>
+          </div>
+        </CardHeader>
+
+        <CardContent className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+          <LogIn className="h-16 w-16 text-muted-foreground mb-4" />
+          <h3 className="text-xl font-semibold mb-2">Authentication Required</h3>
+          <p className="text-muted-foreground mb-6">
+            Please log in to chat with our AI Flower Expert and get personalized recommendations.
+          </p>
+          <Button 
+            onClick={() => navigate('/auth')}
+            className="bg-coral-500 hover:bg-coral-600"
+          >
+            <LogIn className="h-4 w-4 mr-2" />
+            Sign In
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card className="h-full flex flex-col">
@@ -273,7 +307,7 @@ Be conversational but professional, like talking to a friend who's also a flower
                             });
                           }}
                         >
-                          Order This Custom Arrangement
+                          Request Quote for Custom Arrangement
                         </Button>
                       )}
                     </div>

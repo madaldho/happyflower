@@ -5,11 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { X, Plus, Minus, ShoppingBag } from 'lucide-react';
-import type { Product } from './ProductGrid';
-
-export interface CartItem extends Product {
-  quantity: number;
-}
+import type { CartItem } from '@/types';
 
 interface CartDrawerProps {
   isOpen: boolean;
@@ -73,7 +69,7 @@ export function CartDrawer({
                     <CardContent className="p-4">
                       <div className="flex gap-4">
                         <img
-                          src={item.image}
+                          src={item.image_url || item.image}
                           alt={item.name}
                           className="w-16 h-16 object-cover rounded-md"
                         />

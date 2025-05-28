@@ -72,3 +72,22 @@ export interface CustomOrder {
   seller_notes?: string;
   created_at: string;
 }
+
+export interface Order {
+  id: string;
+  customer_name: string;
+  customer_email: string;
+  customer_phone?: string;
+  delivery_address: string;
+  total_amount: number;
+  status: 'pending' | 'confirmed' | 'completed' | 'cancelled';
+  created_at: string;
+}
+
+export interface OrderItem {
+  id: string;
+  order_id: string;
+  product_id: string;
+  quantity: number;
+  price: number;
+}

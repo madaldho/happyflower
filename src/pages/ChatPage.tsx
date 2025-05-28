@@ -19,25 +19,25 @@ export default function ChatPage() {
   const [imageGenerationMode, setImageGenerationMode] = useState(false);
 
   const addToCart = (product: Product) => {
-    // This would typically update a global cart state
     console.log('Adding to cart:', product);
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-pink-50 via-peach-50 to-coral-50">
+    <div className="min-h-screen bg-gradient-to-br from-pink-50 via-peach-50 to-coral-50 flex flex-col">
       {/* Header */}
-      <header className="sticky top-0 z-40 border-b bg-white/80 backdrop-blur-md">
-        <div className="container mx-auto px-4 py-4">
+      <header className="sticky top-0 z-40 border-b bg-white/90 backdrop-blur-md">
+        <div className="container mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={() => navigate('/')}
+                className="shrink-0"
               >
                 <ArrowLeft className="h-5 w-5" />
               </Button>
-              <h1 className="text-xl font-serif font-bold text-coral-600">
+              <h1 className="text-lg md:text-xl font-serif font-bold text-coral-600 truncate">
                 🤖 AI Flower Expert
               </h1>
             </div>
@@ -45,7 +45,8 @@ export default function ChatPage() {
             <Button
               variant={imageGenerationMode ? "default" : "outline"}
               onClick={() => setImageGenerationMode(!imageGenerationMode)}
-              className={imageGenerationMode ? "bg-purple-500 hover:bg-purple-600" : "border-purple-300 text-purple-600 hover:bg-purple-50"}
+              className={`hidden md:flex ${imageGenerationMode ? "bg-purple-500 hover:bg-purple-600" : "border-purple-300 text-purple-600 hover:bg-purple-50"}`}
+              size="sm"
             >
               <ImageIcon className="h-4 w-4 mr-2" />
               {imageGenerationMode ? 'Exit Image Mode' : 'Generate Images'}
@@ -54,9 +55,9 @@ export default function ChatPage() {
         </div>
       </header>
 
-      {/* Chat Interface */}
-      <div className="container mx-auto px-4 py-8 h-[calc(100vh-120px)]">
-        <div className="h-full">
+      {/* Full-screen Chat Interface */}
+      <div className="flex-1 container mx-auto px-4 py-4 md:py-8">
+        <div className="h-full max-w-4xl mx-auto">
           <EnhancedAIFlowerChat 
             onAddToCart={addToCart}
             imageGenerationMode={imageGenerationMode}
@@ -65,8 +66,8 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {/* Fixed bottom button for image generation mode */}
-      <div className="fixed bottom-6 left-6 z-50">
+      {/* Mobile floating image generation toggle */}
+      <div className="fixed bottom-6 left-6 z-50 md:hidden">
         <Button
           variant={imageGenerationMode ? "default" : "outline"}
           onClick={() => setImageGenerationMode(!imageGenerationMode)}

@@ -24,5 +24,16 @@
   ],
   "categories": ["shopping", "lifestyle"],
   "lang": "en",
-  "dir": "ltr"
+  "dir": "ltr",
+  "scope": "/",
+  "prefer_related_applications": false,
+  "shortcuts": [
+    {
+      "name": "Chat with AI",
+      "short_name": "AI Chat",
+      "description": "Chat with our AI flower expert",
+      "url": "/chat",
+      "icons": [{ "src": "/lovable-uploads/e7ebc54a-3544-46fa-888c-a469076505c8.png", "sizes": "96x96" }]
+    }
+  ]
 }
