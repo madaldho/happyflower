@@ -7,23 +7,21 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
-import { ArrowLeft, ShoppingBag } from 'lucide-react';
+import { ArrowLeft, ShoppingBag, CreditCard } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import type { CartItem } from '@/types';
-
-interface CheckoutPageProps {
-  cartItems?: CartItem[];
-}
+import { useAuth } from '@/hooks/useAuth';
+import type { CartItem } from '@/types/cart';
 
 export default function CheckoutPage() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { cartItems = [], onOrderComplete } = location.state || {};
   
   const [customerInfo, setCustomerInfo] = useState({
-    name: '',
-    email: '',
+    name: user?.email ? user.email.split('@')[0] : '',
+    email: user?.email || '',
     phone: '',
     address: '',
     specialInstructions: ''
@@ -41,60 +39,43 @@ export default function CheckoutPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!customerInfo.name || !customerInfo.email || !customerInfo.address) {
+      toast({
+        title: "Missing information",
+        description: "Please fill in all required fields",
+        variant: "destructive"
+      });
+      return;
+    }
+    
     setIsSubmitting(true);
 
     try {
-      // Create order
-      const { data: order, error: orderError } = await supabase
-        .from('orders')
-        .insert([{
-          customer_name: customerInfo.name,
-          customer_email: customerInfo.email,
-          customer_phone: customerInfo.phone,
-          delivery_address: customerInfo.address,
-          total_amount: finalTotal,
-          status: 'pending'
-        }])
-        .select()
-        .single();
-
-      if (orderError) {
-        throw orderError;
-      }
-
-      // Create order items
-      const orderItems = cartItems.map((item: CartItem) => ({
-        order_id: order.id,
-        product_id: item.id,
-        quantity: item.quantity,
-        price: item.price
-      }));
-
-      const { error: itemsError } = await supabase
-        .from('order_items')
-        .insert(orderItems);
-
-      if (itemsError) {
-        throw itemsError;
-      }
-
-      toast({
-        title: "Order Placed Successfully!",
-        description: `Order #${order.id.slice(0, 8)} has been created. We'll contact you soon!`,
+      const { data, error } = await supabase.functions.invoke('create-payment', {
+        body: { 
+          cartItems, 
+          customerInfo 
+        }
       });
 
-      if (onOrderComplete) {
-        onOrderComplete();
+      if (error) {
+        throw new Error(error.message);
       }
-      navigate('/');
+
+      if (data?.url) {
+        window.open(data.url, '_blank');
+      } else {
+        throw new Error("No checkout URL received");
+      }
+      
     } catch (error) {
-      console.error('Order error:', error);
+      console.error('Checkout error:', error);
       toast({
-        title: "Order Failed",
-        description: "There was an error placing your order. Please try again.",
+        title: "Checkout Failed",
+        description: "There was an error processing your checkout. Please try again.",
         variant: "destructive"
       });
-    } finally {
       setIsSubmitting(false);
     }
   };
@@ -251,12 +232,30 @@ export default function CheckoutPage() {
                 </CardContent>
               </Card>
 
-              <div className="bg-yellow-50 p-4 rounded-lg">
-                <h3 className="font-semibold text-yellow-800 mb-2">Payment Information</h3>
-                <p className="text-yellow-700 text-sm">
-                  Payment will be collected upon delivery. You can pay with cash or card when your flowers arrive.
-                </p>
-              </div>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <CreditCard className="h-5 w-5 text-coral-500" />
+                    Payment Method
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-gray-700 mb-4">
+                    You'll be redirected to our secure payment processor to complete your purchase.
+                  </p>
+                  <div className="flex gap-2 items-center">
+                    <div className="bg-white p-2 rounded border">
+                      <img src="https://cdn.pixabay.com/photo/2015/05/26/09/37/paypal-784404_1280.png" className="h-6" alt="PayPal" />
+                    </div>
+                    <div className="bg-white p-2 rounded border">
+                      <img src="https://cdn.pixabay.com/photo/2019/05/31/12/40/visa-4242306_1280.png" className="h-6" alt="Visa" />
+                    </div>
+                    <div className="bg-white p-2 rounded border">
+                      <img src="https://cdn.pixabay.com/photo/2015/09/15/08/34/mastercard-940858_1280.jpg" className="h-6" alt="Mastercard" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
 
               <Button
                 type="submit"
@@ -264,7 +263,7 @@ export default function CheckoutPage() {
                 size="lg"
                 disabled={isSubmitting}
               >
-                {isSubmitting ? 'Placing Order...' : `Place Order - $${finalTotal.toFixed(2)}`}
+                {isSubmitting ? 'Processing...' : `Proceed to Payment - $${finalTotal.toFixed(2)}`}
               </Button>
             </form>
           </div>

@@ -9,6 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { useNavigate } from 'react-router-dom';
+import { ImageUploader } from '@/components/ImageUploader';
 import { 
   Send, 
   Image as ImageIcon, 
@@ -16,7 +17,8 @@ import {
   User,
   Loader2,
   LogIn,
-  ShoppingCart
+  ShoppingCart,
+  Pin
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -28,6 +30,14 @@ interface Message {
   timestamp: Date;
   estimatedPrice?: number;
   canOrder?: boolean;
+  flowerData?: {
+    name: string;
+    description: string;
+    price: number;
+    color: string;
+    size: string;
+    style: string;
+  };
 }
 
 interface EnhancedAIFlowerChatProps {
@@ -45,6 +55,7 @@ export function EnhancedAIFlowerChat({
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [internalImageMode, setInternalImageMode] = useState(imageGenerationMode);
+  const [uploadedImageUrl, setUploadedImageUrl] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { user } = useAuth();
   const { toast } = useToast();
@@ -58,12 +69,11 @@ export function EnhancedAIFlowerChat({
 
   useEffect(() => {
     if (user) {
-      // Initialize with welcome message
       setMessages([{
         id: '1',
         role: 'assistant',
         content: internalImageMode 
-          ? '🎨 Hello! I\'m in **Image Generation Mode**. Describe the flower arrangement you\'d like me to create for you, and I\'ll generate a beautiful custom image with instant pricing!'
+          ? '🎨 Hello! I\'m in **Image Generation Mode**. Upload an image or describe the flower arrangement you\'d like me to create for you, and I\'ll generate a beautiful custom image with detailed pricing information!'
           : '🌸 Hello! I\'m your **AI Flower Expert**. I can help you find the perfect flowers, create custom arrangements, and provide expert advice. How can I help you today?',
         timestamp: new Date()
       }]);
@@ -78,27 +88,43 @@ export function EnhancedAIFlowerChat({
   }, [internalImageMode, user]);
 
   const calculateEstimatedPrice = (prompt: string, imageGenerated: boolean = false) => {
-    // Simple pricing algorithm
-    const basePrice = 150000; // Rp 150,000 base
+    const basePrice = 45;
     let multiplier = 1;
 
-    // Complexity factors
     if (prompt.toLowerCase().includes('premium') || prompt.toLowerCase().includes('luxury')) multiplier += 0.5;
     if (prompt.toLowerCase().includes('large') || prompt.toLowerCase().includes('big')) multiplier += 0.3;
     if (prompt.toLowerCase().includes('wedding') || prompt.toLowerCase().includes('special')) multiplier += 0.4;
     
-    // Count flower types mentioned
     const flowerTypes = ['rose', 'lily', 'tulip', 'orchid', 'sunflower', 'carnation', 'peony'];
     const mentionedFlowers = flowerTypes.filter(flower => 
       prompt.toLowerCase().includes(flower)
     ).length;
     
     if (mentionedFlowers > 2) multiplier += 0.2 * mentionedFlowers;
-    
-    // Image generation premium
     if (imageGenerated) multiplier += 0.3;
 
     return Math.round(basePrice * multiplier);
+  };
+
+  const extractFlowerData = (prompt: string, price: number) => {
+    const flowerTypes = ['rose', 'lily', 'tulip', 'orchid', 'sunflower', 'carnation', 'peony'];
+    const colors = ['red', 'white', 'pink', 'yellow', 'purple', 'blue', 'orange', 'mixed'];
+    const sizes = ['small', 'medium', 'large', 'extra large'];
+    const styles = ['bouquet', 'arrangement', 'centerpiece', 'bridal', 'romantic', 'modern', 'classic'];
+
+    const foundFlower = flowerTypes.find(flower => prompt.toLowerCase().includes(flower)) || 'Mixed Flowers';
+    const foundColor = colors.find(color => prompt.toLowerCase().includes(color)) || 'Colorful';
+    const foundSize = sizes.find(size => prompt.toLowerCase().includes(size)) || 'Medium';
+    const foundStyle = styles.find(style => prompt.toLowerCase().includes(style)) || 'Bouquet';
+
+    return {
+      name: `Custom ${foundFlower.charAt(0).toUpperCase() + foundFlower.slice(1)} ${foundStyle.charAt(0).toUpperCase() + foundStyle.slice(1)}`,
+      description: prompt,
+      price: price,
+      color: foundColor.charAt(0).toUpperCase() + foundColor.slice(1),
+      size: foundSize.charAt(0).toUpperCase() + foundSize.slice(1),
+      style: foundStyle.charAt(0).toUpperCase() + foundStyle.slice(1)
+    };
   };
 
   const toggleImageMode = () => {
@@ -134,6 +160,15 @@ Your expertise includes:
 
 Always respond in a friendly, professional manner using markdown formatting for better readability. Use flower emojis appropriately. Provide specific, actionable advice and recommendations.
 
+When describing flowers or arrangements, format your response with clear sections including:
+- **Name**: Clear product name
+- **Description**: Detailed description with care tips
+- **Recommended Price**: Based on complexity and materials
+- **Colors Available**: List color options
+- **Size Options**: Small, Medium, Large descriptions
+- **Style**: Bouquet, Arrangement, Centerpiece, etc.
+- **Best For**: Occasions and recipients
+
 Our available products include fresh flower bouquets, arrangements, plants, and custom designs with prices ranging from $25-150.
 
 Be conversational but professional, like talking to a friend who's also a flower expert. Act as a professional marketing customer service agent.`
@@ -159,10 +194,19 @@ Be conversational but professional, like talking to a friend who's also a flower
     return data.choices[0].message.content;
   };
 
-  const generateImageWithRunware = async (prompt: string) => {
+  const generateImageWithRunware = async (prompt: string, baseImage?: string) => {
     try {
+      const requestBody: any = {
+        prompt,
+        useImageToImage: !!baseImage
+      };
+
+      if (baseImage && baseImage.startsWith('runware://')) {
+        requestBody.baseImageUUID = baseImage.replace('runware://', '');
+      }
+
       const response = await supabase.functions.invoke('generate-image-runware', {
-        body: { prompt }
+        body: requestBody
       });
 
       if (response.error) {
@@ -171,14 +215,13 @@ Be conversational but professional, like talking to a friend who's also a flower
 
       const data = response.data;
       
-      // Save to database if user is logged in
       if (user && data.image_url) {
         try {
           await supabase.from('generated_images').insert({
             user_id: user.id,
             prompt: prompt,
             image_url: data.image_url,
-            status: 'pending'
+            status: 'completed'
           });
         } catch (error) {
           console.error('Error saving generated image:', error);
@@ -203,7 +246,6 @@ Be conversational but professional, like talking to a friend who's also a flower
     }
 
     try {
-      // Create order with estimated price
       const { data: order, error } = await supabase
         .from('orders')
         .insert({
@@ -225,13 +267,12 @@ Be conversational but professional, like talking to a friend who's also a flower
         description: `Order #${order.id.slice(0, 8)} created. You'll be notified when admin confirms the price.`,
       });
 
-      // Navigate to checkout with order info
       navigate('/checkout', { 
         state: { 
           orderInfo: {
             ...order,
             items: [{
-              name: 'Custom Flower Arrangement',
+              name: message.flowerData?.name || 'Custom Flower Arrangement',
               description: message.content,
               image: message.image,
               price: message.estimatedPrice,
@@ -253,7 +294,7 @@ Be conversational but professional, like talking to a friend who's also a flower
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim()) return;
+    if (!input.trim() && !uploadedImageUrl) return;
 
     if (!user) {
       toast({
@@ -267,11 +308,12 @@ Be conversational but professional, like talking to a friend who's also a flower
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
-      content: input,
+      content: uploadedImageUrl ? `${input}\n[Image uploaded for reference]` : input,
       timestamp: new Date()
     };
 
     setMessages(prev => [...prev, userMessage]);
+    const currentPrompt = input;
     setInput('');
     setIsLoading(true);
 
@@ -279,19 +321,18 @@ Be conversational but professional, like talking to a friend who's also a flower
       let response: string;
       let generatedImageUrl: string | null = null;
       let estimatedPrice: number | undefined;
+      let flowerData: any;
 
       if (internalImageMode) {
-        // Generate image mode
-        generatedImageUrl = await generateImageWithRunware(input);
-        estimatedPrice = calculateEstimatedPrice(input, true);
+        generatedImageUrl = await generateImageWithRunware(currentPrompt, uploadedImageUrl);
+        estimatedPrice = calculateEstimatedPrice(currentPrompt, true);
+        flowerData = extractFlowerData(currentPrompt, estimatedPrice);
         
-        // Get AI description of the generated arrangement
         response = await callPerplexityAPI(
-          `I've generated a custom flower arrangement image based on the request: "${input}". Please provide a detailed, enthusiastic description of this beautiful arrangement as if you're a professional florist. Include suggestions for occasions, care tips, and mention that customers can order this exact arrangement. Make it engaging and professional like a marketing customer service agent. Keep it concise but informative.`
+          `I've generated a custom flower arrangement image based on the request: "${currentPrompt}". Please provide a detailed, enthusiastic description of this beautiful arrangement as if you're a professional florist. Format your response with clear sections for Name, Description, Price, Colors, Size, and Style. Include suggestions for occasions, care tips, and mention that customers can order this exact arrangement. Make it engaging and professional like a marketing customer service agent. Keep it concise but informative.`
         );
       } else {
-        // Regular chat mode
-        response = await callPerplexityAPI(input);
+        response = await callPerplexityAPI(currentPrompt);
       }
 
       const assistantMessage: Message = {
@@ -301,7 +342,8 @@ Be conversational but professional, like talking to a friend who's also a flower
         image: generatedImageUrl || undefined,
         timestamp: new Date(),
         estimatedPrice: estimatedPrice,
-        canOrder: !!generatedImageUrl
+        canOrder: !!generatedImageUrl,
+        flowerData: flowerData
       };
 
       setMessages(prev => [...prev, assistantMessage]);
@@ -396,12 +438,16 @@ Be conversational but professional, like talking to a friend who's also a flower
                         className="max-w-full h-auto rounded-lg"
                       />
                       
-                      {message.estimatedPrice && (
-                        <div className="mt-3 p-3 bg-green-50 rounded-lg border border-green-200">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="font-semibold text-green-800">
-                              Estimasi Harga: Rp {message.estimatedPrice.toLocaleString()}
-                            </span>
+                      {message.estimatedPrice && message.flowerData && (
+                        <div className="mt-3 p-4 bg-green-50 rounded-lg border border-green-200">
+                          <div className="space-y-2 mb-3">
+                            <div className="grid grid-cols-2 gap-2 text-sm">
+                              <div><strong>Name:</strong> {message.flowerData.name}</div>
+                              <div><strong>Price:</strong> ${message.estimatedPrice}</div>
+                              <div><strong>Color:</strong> {message.flowerData.color}</div>
+                              <div><strong>Size:</strong> {message.flowerData.size}</div>
+                              <div className="col-span-2"><strong>Style:</strong> {message.flowerData.style}</div>
+                            </div>
                           </div>
                           <div className="flex gap-2">
                             <Button 
@@ -410,11 +456,11 @@ Be conversational but professional, like talking to a friend who's also a flower
                               onClick={() => handleOrder(message)}
                             >
                               <ShoppingCart className="h-4 w-4 mr-1" />
-                              Pesan Sekarang
+                              Order Now
                             </Button>
                           </div>
                           <p className="text-xs text-green-600 mt-1">
-                            *Harga dapat disesuaikan oleh admin sesuai kompleksitas
+                            *Final price may be adjusted by admin based on complexity
                           </p>
                         </div>
                       )}
@@ -455,7 +501,14 @@ Be conversational but professional, like talking to a friend who's also a flower
           <div ref={messagesEndRef} />
         </div>
 
-        <div className="border-t p-4 flex-shrink-0">
+        <div className="border-t p-4 flex-shrink-0 space-y-3">
+          {internalImageMode && (
+            <ImageUploader 
+              onImageUpload={setUploadedImageUrl}
+              currentImage={uploadedImageUrl}
+            />
+          )}
+          
           <form onSubmit={handleSubmit} className="flex gap-2">
             <Button
               type="button"
@@ -467,21 +520,26 @@ Be conversational but professional, like talking to a friend who's also a flower
               <ImageIcon className="h-4 w-4" />
             </Button>
             
-            <Input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder={
-                internalImageMode 
-                  ? "Describe the flower arrangement you want me to generate..."
-                  : "Ask about flowers, arrangements, or get recommendations..."
-              }
-              className="flex-1"
-              disabled={isLoading}
-            />
+            <div className="relative flex-1">
+              <Input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder={
+                  internalImageMode 
+                    ? "Describe the flower arrangement you want me to generate..."
+                    : "Ask about flowers, arrangements, or get recommendations..."
+                }
+                className="pr-10"
+                disabled={isLoading}
+              />
+              {uploadedImageUrl && (
+                <Pin className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-purple-500" />
+              )}
+            </div>
             
             <Button 
               type="submit" 
-              disabled={isLoading || !input.trim()}
+              disabled={isLoading || (!input.trim() && !uploadedImageUrl)}
               className="bg-coral-500 hover:bg-coral-600"
             >
               {isLoading ? (
@@ -493,8 +551,8 @@ Be conversational but professional, like talking to a friend who's also a flower
           </form>
 
           {internalImageMode && (
-            <div className="mt-2 text-sm text-purple-600 bg-purple-50 p-2 rounded-lg">
-              🎨 **Image Generation Mode**: Describe your ideal flower arrangement and I'll create it with instant pricing!
+            <div className="text-sm text-purple-600 bg-purple-50 p-2 rounded-lg">
+              🎨 **Image Generation Mode**: Upload an image and/or describe your ideal flower arrangement for AI-powered creation with detailed pricing!
             </div>
           )}
         </div>

@@ -2,7 +2,16 @@
 import { useState, useEffect, createContext, useContext } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { User, Session } from '@supabase/supabase-js';
-import type { Profile, UserRole } from '@/types';
+import type { Profile } from '@/types';
+import { DatabaseService } from '@/services/database';
+
+// Define the UserRole type to match the database
+interface UserRole {
+  id: string;
+  user_id: string;
+  role: 'admin' | 'seller' | 'customer';
+  created_at: string;
+}
 
 interface AuthContextType {
   user: User | null;
@@ -13,6 +22,7 @@ interface AuthContextType {
   isSeller: boolean;
   loading: boolean;
   signOut: () => Promise<void>;
+  refreshUserData: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -27,25 +37,54 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isAdmin = userRoles.some(role => role.role === 'admin');
   const isSeller = userRoles.some(role => role.role === 'seller' || role.role === 'admin');
 
-  useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        loadUserData(session.user.id);
-      } else {
-        setLoading(false);
-      }
-    });
+  const loadUserData = async (userId: string) => {
+    try {
+      console.log('Loading user data for:', userId);
+      
+      // Load profile
+      const profileData = await DatabaseService.getProfile(userId);
+      console.log('Profile data:', profileData);
+      setProfile(profileData);
 
-    // Listen for auth changes
+      // Load user roles with proper typing
+      const rolesData = await DatabaseService.getUserRoles(userId);
+      console.log('Roles data:', rolesData);
+      
+      // Type assertion to ensure roles are properly typed
+      const typedRoles: UserRole[] = rolesData.map(role => ({
+        id: role.id,
+        user_id: role.user_id,
+        role: role.role as 'admin' | 'seller' | 'customer',
+        created_at: role.created_at
+      }));
+      
+      setUserRoles(typedRoles);
+    } catch (error) {
+      console.error('Error loading user data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const refreshUserData = async () => {
+    if (user?.id) {
+      await loadUserData(user.id);
+    }
+  };
+
+  useEffect(() => {
+    // Test database connection
+    DatabaseService.testConnection();
+
+    // Set up auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
+        console.log('Auth state changed:', event, session?.user?.email);
         setSession(session);
         setUser(session?.user ?? null);
         
         if (session?.user) {
+          // Use setTimeout to defer Supabase calls and prevent deadlock
           setTimeout(() => loadUserData(session.user.id), 0);
         } else {
           setProfile(null);
@@ -55,35 +94,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     );
 
+    // THEN check for existing session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      console.log('Initial session:', session?.user?.email);
+      setSession(session);
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        loadUserData(session.user.id);
+      } else {
+        setLoading(false);
+      }
+    });
+
     return () => subscription.unsubscribe();
   }, []);
 
-  const loadUserData = async (userId: string) => {
-    try {
-      // Load profile
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
-
-      // Load user roles with proper typing
-      const { data: rolesData } = await supabase
-        .from('user_roles')
-        .select('*')
-        .eq('user_id', userId);
-
-      setProfile(profileData);
-      setUserRoles((rolesData || []) as UserRole[]);
-    } catch (error) {
-      console.error('Error loading user data:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const signOut = async () => {
     try {
+      console.log('Signing out...');
+      
+      // Clean up local state first
+      setUser(null);
+      setSession(null);
+      setProfile(null);
+      setUserRoles([]);
+      
       // Clean up auth state
       Object.keys(localStorage).forEach((key) => {
         if (key.startsWith('supabase.auth.') || key.includes('sb-')) {
@@ -92,10 +127,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
       
       await supabase.auth.signOut({ scope: 'global' });
-      setUser(null);
-      setSession(null);
-      setProfile(null);
-      setUserRoles([]);
       
       // Force page reload for clean state
       window.location.href = '/';
@@ -113,7 +144,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isAdmin,
       isSeller,
       loading,
-      signOut
+      signOut,
+      refreshUserData
     }}>
       {children}
     </AuthContext.Provider>

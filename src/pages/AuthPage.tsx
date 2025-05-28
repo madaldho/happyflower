@@ -9,10 +9,13 @@ import { Separator } from '@/components/ui/separator';
 import { ArrowLeft, Mail, Lock, User } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
+import { useEffect } from 'react';
 
 export default function AuthPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user, loading } = useAuth();
   const [isSignUp, setIsSignUp] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -20,6 +23,13 @@ export default function AuthPage() {
     password: '',
     fullName: ''
   });
+
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (!loading && user) {
+      navigate('/');
+    }
+  }, [user, loading, navigate]);
 
   const cleanupAuthState = () => {
     Object.keys(localStorage).forEach((key) => {
@@ -36,18 +46,39 @@ export default function AuthPage() {
 
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!formData.email || !formData.password) {
+      toast({
+        title: "Missing Information",
+        description: "Please fill in all required fields.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (formData.password.length < 6) {
+      toast({
+        title: "Password Too Short",
+        description: "Password must be at least 6 characters long.",
+        variant: "destructive"
+      });
+      return;
+    }
+
     setIsLoading(true);
 
     try {
       cleanupAuthState();
       
+      // Sign out any existing session
       try {
         await supabase.auth.signOut({ scope: 'global' });
       } catch (err) {
-        // Continue even if this fails
+        console.log('No existing session to sign out');
       }
 
       if (isSignUp) {
+        console.log('Attempting sign up for:', formData.email);
         const { data, error } = await supabase.auth.signUp({
           email: formData.email,
           password: formData.password,
@@ -58,32 +89,58 @@ export default function AuthPage() {
           }
         });
 
-        if (error) throw error;
+        if (error) {
+          console.error('Sign up error:', error);
+          throw error;
+        }
 
         if (data.user) {
           toast({
             title: "Account created successfully!",
-            description: "Please check your email to verify your account.",
+            description: "You can now sign in to your account.",
           });
-          window.location.href = '/';
+          setIsSignUp(false);
+          setFormData({ email: '', password: '', fullName: '' });
         }
       } else {
+        console.log('Attempting sign in for:', formData.email);
         const { data, error } = await supabase.auth.signInWithPassword({
           email: formData.email,
           password: formData.password,
         });
 
-        if (error) throw error;
+        if (error) {
+          console.error('Sign in error:', error);
+          throw error;
+        }
 
         if (data.user) {
-          window.location.href = '/';
+          console.log('Sign in successful:', data.user.email);
+          toast({
+            title: "Welcome back!",
+            description: "Successfully signed in.",
+          });
+          navigate('/');
         }
       }
     } catch (error: any) {
       console.error('Auth error:', error);
+      
+      let errorMessage = "An error occurred during authentication.";
+      
+      if (error.message?.includes('Invalid login credentials')) {
+        errorMessage = "Invalid email or password. Please try again.";
+      } else if (error.message?.includes('User already registered')) {
+        errorMessage = "An account with this email already exists. Please sign in instead.";
+      } else if (error.message?.includes('Email not confirmed')) {
+        errorMessage = "Please check your email and click the confirmation link.";
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
       toast({
         title: "Authentication Error",
-        description: error.message || "An error occurred during authentication.",
+        description: errorMessage,
         variant: "destructive"
       });
     } finally {
@@ -100,9 +157,10 @@ export default function AuthPage() {
       try {
         await supabase.auth.signOut({ scope: 'global' });
       } catch (err) {
-        // Continue even if this fails
+        console.log('No existing session to sign out');
       }
 
+      console.log('Attempting Google auth...');
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
@@ -110,7 +168,10 @@ export default function AuthPage() {
         }
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Google auth error:', error);
+        throw error;
+      }
     } catch (error: any) {
       console.error('Google auth error:', error);
       toast({
@@ -122,6 +183,18 @@ export default function AuthPage() {
       setIsLoading(false);
     }
   };
+
+  // Show loading state
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-pink-50 via-peach-50 to-coral-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-coral-600 mx-auto"></div>
+          <p className="mt-2 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-pink-50 via-peach-50 to-coral-50">
@@ -255,7 +328,10 @@ export default function AuthPage() {
               <div className="text-center">
                 <Button
                   variant="ghost"
-                  onClick={() => setIsSignUp(!isSignUp)}
+                  onClick={() => {
+                    setIsSignUp(!isSignUp);
+                    setFormData({ email: '', password: '', fullName: '' });
+                  }}
                   className="text-coral-600 hover:text-coral-700"
                 >
                   {isSignUp 

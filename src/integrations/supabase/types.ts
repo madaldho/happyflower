@@ -109,9 +109,15 @@ export type Database = {
           customer_name: string
           customer_phone: string | null
           delivery_address: string
+          estimated_price: number | null
+          final_price: number | null
+          generated_image_id: string | null
           id: string
+          is_price_overridden: boolean | null
+          price_locked: boolean | null
           status: string | null
           total_amount: number
+          user_id: string | null
         }
         Insert: {
           created_at?: string
@@ -119,9 +125,15 @@ export type Database = {
           customer_name: string
           customer_phone?: string | null
           delivery_address: string
+          estimated_price?: number | null
+          final_price?: number | null
+          generated_image_id?: string | null
           id?: string
+          is_price_overridden?: boolean | null
+          price_locked?: boolean | null
           status?: string | null
           total_amount: number
+          user_id?: string | null
         }
         Update: {
           created_at?: string
@@ -129,11 +141,25 @@ export type Database = {
           customer_name?: string
           customer_phone?: string | null
           delivery_address?: string
+          estimated_price?: number | null
+          final_price?: number | null
+          generated_image_id?: string | null
           id?: string
+          is_price_overridden?: boolean | null
+          price_locked?: boolean | null
           status?: string | null
           total_amount?: number
+          user_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "orders_generated_image_id_fkey"
+            columns: ["generated_image_id"]
+            isOneToOne: false
+            referencedRelation: "generated_images"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       products: {
         Row: {

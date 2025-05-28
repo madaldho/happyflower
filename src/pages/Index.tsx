@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import { Header } from '@/components/Header';
 import { EnhancedAIFlowerChat } from '@/components/EnhancedAIFlowerChat';
@@ -11,7 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { MessageCircle, Flower2, ShoppingBag, User, Sparkles, Settings } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
-import type { CartItem } from '@/types';
+import type { CartItem } from '@/types/cart';
 
 interface Product {
   id: string;
@@ -25,9 +24,7 @@ interface Product {
 const Index = () => {
   const navigate = useNavigate();
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
-  const [isCartOpen, setIsCartOpen] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
-  const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [showAIChat, setShowAIChat] = useState(false);
   const { user, profile, isAdmin, isSeller, signOut } = useAuth();
   const { toast } = useToast();
@@ -62,6 +59,10 @@ const Index = () => {
   };
 
   const updateQuantity = (productId: string, quantity: number) => {
+    if (quantity === 0) {
+      removeItem(productId);
+      return;
+    }
     setCartItems(prev =>
       prev.map(item =>
         item.id === productId ? { ...item, quantity } : item
@@ -78,7 +79,6 @@ const Index = () => {
   };
 
   const handleCheckout = () => {
-    setIsCartOpen(false);
     navigate('/checkout', { 
       state: { 
         cartItems, 
@@ -99,7 +99,6 @@ const Index = () => {
 
   const handleLogout = async () => {
     await signOut();
-    setIsProfileOpen(false);
     toast({
       title: "Signed out",
       description: "You have been successfully signed out.",
@@ -139,14 +138,15 @@ const Index = () => {
                       </Button>
                     </Link>
                   )}
-                  <Button
-                    variant="ghost"
-                    onClick={() => setIsProfileOpen(true)}
-                    className="flex items-center gap-2"
-                  >
-                    <User className="h-4 w-4" />
-                    <span className="hidden sm:inline">{profile?.full_name || user.email}</span>
-                  </Button>
+                  <Link to="/profile">
+                    <Button
+                      variant="ghost"
+                      className="flex items-center gap-2"
+                    >
+                      <User className="h-4 w-4" />
+                      <span className="hidden sm:inline">{profile?.full_name || user.email}</span>
+                    </Button>
+                  </Link>
                 </>
               ) : (
                 <Button
@@ -159,18 +159,12 @@ const Index = () => {
                 </Button>
               )}
               
-              <Button
-                variant="outline"
-                onClick={() => setIsCartOpen(true)}
-                className="relative border-coral-300 text-coral-600 hover:bg-coral-50"
-              >
-                <ShoppingBag className="h-4 w-4" />
-                {cartItemCount > 0 && (
-                  <span className="absolute -top-2 -right-2 bg-coral-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
-                    {cartItemCount}
-                  </span>
-                )}
-              </Button>
+              <CartDrawer
+                items={cartItems}
+                onUpdateQuantity={updateQuantity}
+                onRemoveItem={removeItem}
+                onCheckout={handleCheckout}
+              />
             </div>
           </div>
         </div>
@@ -219,7 +213,7 @@ const Index = () => {
             </div>
           )}
         </section>
-
+        
         {/* AI Chat Section */}
         {showAIChat && (
           <section className="mb-12">
@@ -273,7 +267,7 @@ const Index = () => {
                 <ShoppingBag className="h-8 w-8 text-coral-600" />
               </div>
               <h3 className="font-semibold mb-2">Easy Checkout</h3>
-              <p className="text-gray-600 text-sm">Simple ordering with payment on delivery for your convenience</p>
+              <p className="text-gray-600 text-sm">Simple ordering with secure payment options for your convenience</p>
             </div>
           </div>
         </section>
@@ -289,43 +283,25 @@ const Index = () => {
             <span className="font-serif text-xl font-semibold text-coral-600">Happy Flower</span>
           </div>
           <p className="text-gray-600">
-            🌸 Beautiful flowers delivered with love • Payment on delivery • AI-powered recommendations 🤖
+            🌸 Beautiful flowers delivered with love • Secure payment • AI-powered recommendations 🤖
           </p>
         </footer>
       </main>
 
       {/* Modals and Drawers */}
-      <CartDrawer
-        isOpen={isCartOpen}
-        onClose={() => setIsCartOpen(false)}
-        items={cartItems}
-        onUpdateQuantity={updateQuantity}
-        onRemoveItem={removeItem}
-        onCheckout={handleCheckout}
-      />
-
       <AuthModal
         isOpen={isAuthOpen}
         onClose={() => setIsAuthOpen(false)}
-        onLogin={handleLogin}
-      />
-
-      <UserProfile
-        isOpen={isProfileOpen}
-        onClose={() => setIsProfileOpen(false)}
-        user={user ? {
-          id: user.id,
-          name: profile?.full_name || user.email || '',
-          email: user.email || '',
-          avatar: profile?.avatar_url
-        } : null}
-        onLogout={handleLogout}
+        onLogin={() => {}}
       />
 
       {/* Floating Cart Button for Mobile */}
       {cartItemCount > 0 && (
         <Button
-          onClick={() => setIsCartOpen(true)}
+          onClick={() => {
+            const cartTrigger = document.querySelector('[data-cart-trigger]') as HTMLElement;
+            if (cartTrigger) cartTrigger.click();
+          }}
           className="fixed bottom-6 right-6 bg-coral-500 hover:bg-coral-600 text-white rounded-full p-4 shadow-lg md:hidden z-50"
           size="lg"
         >
