@@ -4,11 +4,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { X, User as UserIcon, LogOut, Save } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Badge } from '@/components/ui/badge';
+import { X, User, History, Settings, Package } from 'lucide-react';
+import { useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/hooks/useAuth';
+import type { Order } from '@/types';
 
 interface UserProfileProps {
   isOpen: boolean;
@@ -23,118 +24,221 @@ interface UserProfileProps {
 }
 
 export function UserProfile({ isOpen, onClose, user, onLogout }: UserProfileProps) {
-  const [fullName, setFullName] = useState(user?.name || '');
-  const [isUpdating, setIsUpdating] = useState(false);
-  const { toast } = useToast();
-  const { profile } = useAuth();
+  const [userOrders, setUserOrders] = useState<Order[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [editData, setEditData] = useState({
+    full_name: user?.name || '',
+    email: user?.email || ''
+  });
 
-  const handleUpdateProfile = async () => {
+  useEffect(() => {
+    if (isOpen && user) {
+      loadUserOrders();
+    }
+  }, [isOpen, user]);
+
+  const loadUserOrders = async () => {
+    if (!user) return;
+    
+    setIsLoading(true);
+    try {
+      const { data: orders, error } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      setUserOrders((orders || []).map(order => ({
+        ...order,
+        status: order.status as 'pending' | 'confirmed' | 'completed' | 'cancelled' | 'waiting_admin_confirmation'
+      })));
+    } catch (error) {
+      console.error('Error loading user orders:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSaveProfile = async () => {
     if (!user) return;
 
-    setIsUpdating(true);
     try {
       const { error } = await supabase
         .from('profiles')
-        .update({ full_name: fullName })
+        .update({
+          full_name: editData.full_name,
+          email: editData.email
+        })
         .eq('id', user.id);
 
       if (error) throw error;
 
-      toast({
-        title: "Profile updated",
-        description: "Your profile has been successfully updated.",
-      });
+      setEditMode(false);
     } catch (error) {
       console.error('Error updating profile:', error);
-      toast({
-        title: "Error",
-        description: "Failed to update profile. Please try again.",
-        variant: "destructive"
-      });
-    } finally {
-      setIsUpdating(false);
     }
   };
 
   if (!isOpen || !user) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-1">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-2xl font-serif flex items-center gap-2">
-              <UserIcon className="h-5 w-5" />
-              Profile
-            </CardTitle>
+    <div className="fixed inset-0 z-50 overflow-hidden">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      
+      <div className="absolute right-0 top-0 h-full w-full max-w-lg bg-white shadow-xl">
+        <div className="flex h-full flex-col">
+          {/* Header */}
+          <div className="flex items-center justify-between border-b p-4">
+            <h2 className="text-lg font-semibold">Profile</h2>
             <Button variant="ghost" size="icon" onClick={onClose}>
-              <X className="h-4 w-4" />
+              <X className="h-5 w-5" />
             </Button>
           </div>
-        </CardHeader>
-        
-        <CardContent className="space-y-6">
-          {/* Avatar */}
-          <div className="flex justify-center">
-            <Avatar className="h-20 w-20">
-              <AvatarImage src={user.avatar} />
-              <AvatarFallback className="bg-coral-100 text-coral-600 text-lg">
-                {user.name.charAt(0).toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
+
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto">
+            <Tabs defaultValue="orders" className="w-full">
+              <TabsList className="grid w-full grid-cols-2 m-4">
+                <TabsTrigger value="orders" className="flex items-center gap-2">
+                  <History className="h-4 w-4" />
+                  Riwayat Pesanan
+                </TabsTrigger>
+                <TabsTrigger value="profile" className="flex items-center gap-2">
+                  <Settings className="h-4 w-4" />
+                  Edit Profil
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="orders" className="px-4 pb-4">
+                <div className="space-y-4">
+                  {isLoading ? (
+                    <div className="text-center py-8">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-coral-500 mx-auto"></div>
+                      <p className="text-gray-600 mt-2">Loading orders...</p>
+                    </div>
+                  ) : userOrders.length === 0 ? (
+                    <div className="text-center py-8">
+                      <Package className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                      <p className="text-gray-600">No orders yet</p>
+                      <p className="text-sm text-gray-500">Start shopping to see your orders here</p>
+                    </div>
+                  ) : (
+                    userOrders.map((order) => (
+                      <Card key={order.id}>
+                        <CardContent className="p-4">
+                          <div className="flex justify-between items-start mb-2">
+                            <div>
+                              <p className="font-medium">Order #{order.id.slice(0, 8)}</p>
+                              <p className="text-sm text-gray-600">
+                                {new Date(order.created_at).toLocaleDateString('id-ID', {
+                                  day: 'numeric',
+                                  month: 'long',
+                                  year: 'numeric'
+                                })}
+                              </p>
+                            </div>
+                            <Badge variant={
+                              order.status === 'waiting_admin_confirmation' ? 'secondary' :
+                              order.status === 'confirmed' ? 'default' :
+                              order.status === 'completed' ? 'default' : 'destructive'
+                            }>
+                              {order.status === 'waiting_admin_confirmation' ? 'Menunggu Konfirmasi' :
+                               order.status === 'confirmed' ? 'Dikonfirmasi' :
+                               order.status === 'completed' ? 'Selesai' : 
+                               order.status === 'cancelled' ? 'Dibatalkan' : order.status}
+                            </Badge>
+                          </div>
+                          
+                          <p className="text-sm text-gray-600 mb-2">{order.delivery_address}</p>
+                          
+                          <div className="text-right">
+                            {order.estimated_price && order.status === 'waiting_admin_confirmation' && (
+                              <p className="text-sm text-orange-600">
+                                Estimasi: Rp {order.estimated_price.toLocaleString()}
+                              </p>
+                            )}
+                            <p className="font-semibold text-coral-600">
+                              {order.final_price ? `Rp ${order.final_price.toLocaleString()}` :
+                               order.estimated_price ? `Rp ${order.estimated_price.toLocaleString()}` :
+                               `Rp ${order.total_amount.toLocaleString()}`}
+                            </p>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))
+                  )}
+                </div>
+              </TabsContent>
+
+              <TabsContent value="profile" className="px-4 pb-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <User className="h-5 w-5" />
+                      Profile Information
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {editMode ? (
+                      <>
+                        <div>
+                          <Label htmlFor="name">Full Name</Label>
+                          <Input
+                            id="name"
+                            value={editData.full_name}
+                            onChange={(e) => setEditData(prev => ({ ...prev, full_name: e.target.value }))}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="email">Email</Label>
+                          <Input
+                            id="email"
+                            type="email"
+                            value={editData.email}
+                            onChange={(e) => setEditData(prev => ({ ...prev, email: e.target.value }))}
+                          />
+                        </div>
+                        <div className="flex gap-2">
+                          <Button onClick={handleSaveProfile} className="flex-1">
+                            Save Changes
+                          </Button>
+                          <Button variant="outline" onClick={() => setEditMode(false)} className="flex-1">
+                            Cancel
+                          </Button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div>
+                          <Label>Email</Label>
+                          <p className="text-sm text-gray-600 mt-1">{user.email}</p>
+                        </div>
+                        <Button onClick={() => setEditMode(true)} variant="outline" className="w-full">
+                          Edit Profile
+                        </Button>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
           </div>
 
-          {/* User Info */}
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                value={user.email}
-                disabled
-                className="bg-gray-50"
-              />
-            </div>
-
-            <div>
-              <Label htmlFor="fullName">Full Name</Label>
-              <Input
-                id="fullName"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                placeholder="Enter your full name"
-              />
-            </div>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="space-y-3">
+          {/* Footer */}
+          <div className="border-t p-4">
             <Button 
-              onClick={handleUpdateProfile}
-              disabled={isUpdating || fullName === user.name}
-              className="w-full bg-coral-500 hover:bg-coral-600"
+              onClick={onLogout} 
+              variant="destructive" 
+              className="w-full"
             >
-              <Save className="h-4 w-4 mr-2" />
-              {isUpdating ? 'Updating...' : 'Update Profile'}
-            </Button>
-
-            <Button 
-              onClick={onLogout}
-              variant="outline"
-              className="w-full border-red-300 text-red-600 hover:bg-red-50"
-            >
-              <LogOut className="h-4 w-4 mr-2" />
               Sign Out
             </Button>
           </div>
-
-          {/* Account Info */}
-          <div className="pt-4 border-t text-center text-sm text-muted-foreground">
-            <p>Member since {new Date(profile?.created_at || '').toLocaleDateString()}</p>
-          </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }

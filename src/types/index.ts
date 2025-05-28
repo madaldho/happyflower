@@ -68,6 +68,9 @@ export interface CustomOrder {
   price_range_min?: number;
   price_range_max?: number;
   final_price?: number;
+  estimated_price?: number;
+  is_price_overridden?: boolean;
+  price_locked?: boolean;
   status: 'pending_review' | 'price_provided' | 'confirmed' | 'completed';
   seller_notes?: string;
   created_at: string;
@@ -80,8 +83,13 @@ export interface Order {
   customer_phone?: string;
   delivery_address: string;
   total_amount: number;
-  status: 'pending' | 'confirmed' | 'completed' | 'cancelled';
+  estimated_price?: number;
+  final_price?: number;
+  is_price_overridden?: boolean;
+  status: 'pending' | 'confirmed' | 'completed' | 'cancelled' | 'waiting_admin_confirmation';
   created_at: string;
+  user_id?: string;
+  generated_image_id?: string;
 }
 
 export interface OrderItem {

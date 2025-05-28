@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Edit, Trash2, Check, X, Image } from 'lucide-react';
+import { Plus, Edit, Trash2, Check, X, Image, DollarSign } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import type { Product, GeneratedImage, AITrainingData, Order } from '@/types';
@@ -71,7 +70,11 @@ export function AdminPanel() {
         status: img.status as 'pending' | 'approved' | 'rejected'
       })));
       setTrainingData(trainingDataRes || []);
-      setOrders(ordersData || []);
+      // Fix the orders type casting
+      setOrders((ordersData || []).map(order => ({
+        ...order,
+        status: order.status as 'pending' | 'confirmed' | 'completed' | 'cancelled' | 'waiting_admin_confirmation'
+      })));
     } catch (error) {
       console.error('Error loading data:', error);
       toast({
@@ -205,17 +208,124 @@ export function AdminPanel() {
     }
   };
 
+  const updateOrderPrice = async (orderId: string, newPrice: number) => {
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({ 
+          final_price: newPrice,
+          is_price_overridden: true,
+          status: 'confirmed'
+        })
+        .eq('id', orderId);
+
+      if (error) throw error;
+
+      setOrders(prev =>
+        prev.map(order =>
+          order.id === orderId 
+            ? { 
+                ...order, 
+                final_price: newPrice, 
+                is_price_overridden: true,
+                status: 'confirmed' as const
+              } 
+            : order
+        )
+      );
+
+      toast({
+        title: "Success",
+        description: "Order price updated successfully"
+      });
+    } catch (error) {
+      console.error('Error updating order price:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update order price",
+        variant: "destructive"
+      });
+    }
+  };
+
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-6">
       <h1 className="text-3xl font-bold">Admin Panel</h1>
 
-      <Tabs defaultValue="products" className="w-full">
+      <Tabs defaultValue="orders" className="w-full">
         <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="orders">Orders</TabsTrigger>
           <TabsTrigger value="products">Products</TabsTrigger>
           <TabsTrigger value="images">Generated Images</TabsTrigger>
           <TabsTrigger value="training">AI Training</TabsTrigger>
-          <TabsTrigger value="orders">Orders</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="orders" className="space-y-4">
+          <div className="space-y-4">
+            {orders.map((order) => (
+              <Card key={order.id}>
+                <CardContent className="p-4">
+                  <div className="flex justify-between items-start mb-2">
+                    <div>
+                      <h3 className="font-semibold">{order.customer_name}</h3>
+                      <p className="text-sm text-muted-foreground">{order.customer_email}</p>
+                    </div>
+                    <Badge variant={
+                      order.status === 'waiting_admin_confirmation' ? 'secondary' :
+                      order.status === 'confirmed' ? 'default' :
+                      order.status === 'completed' ? 'default' : 'destructive'
+                    }>
+                      {order.status}
+                    </Badge>
+                  </div>
+                  <p className="text-sm mb-2">{order.delivery_address}</p>
+                  
+                  {order.estimated_price && (
+                    <div className="bg-yellow-50 p-3 rounded-lg mb-3">
+                      <p className="text-sm font-medium">Estimated Price: Rp {order.estimated_price.toLocaleString()}</p>
+                      {order.status === 'waiting_admin_confirmation' && (
+                        <div className="flex gap-2 mt-2">
+                          <Input
+                            type="number"
+                            placeholder="Set final price"
+                            className="w-40"
+                            onKeyPress={(e) => {
+                              if (e.key === 'Enter') {
+                                const target = e.target as HTMLInputElement;
+                                updateOrderPrice(order.id, Number(target.value));
+                              }
+                            }}
+                          />
+                          <Button
+                            size="sm"
+                            onClick={(e) => {
+                              const input = e.currentTarget.parentElement?.querySelector('input') as HTMLInputElement;
+                              if (input?.value) {
+                                updateOrderPrice(order.id, Number(input.value));
+                              }
+                            }}
+                          >
+                            <DollarSign className="h-4 w-4 mr-1" />
+                            Set Price
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  <p className="font-semibold text-coral-600">
+                    {order.final_price ? `Final: Rp ${order.final_price.toLocaleString()}` : 
+                     order.estimated_price ? `Estimated: Rp ${order.estimated_price.toLocaleString()}` :
+                     `Rp ${order.total_amount.toLocaleString()}`}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {new Date(order.created_at).toLocaleDateString()}
+                  </p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </TabsContent>
 
         <TabsContent value="products" className="space-y-4">
           <Card>
@@ -374,29 +484,6 @@ export function AdminPanel() {
                   <h3 className="font-semibold mb-2">Q: {data.question}</h3>
                   <p className="text-muted-foreground">A: {data.answer}</p>
                   <Badge variant="outline" className="mt-2">{data.category}</Badge>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </TabsContent>
-
-        <TabsContent value="orders" className="space-y-4">
-          <div className="space-y-4">
-            {orders.map((order) => (
-              <Card key={order.id}>
-                <CardContent className="p-4">
-                  <div className="flex justify-between items-start mb-2">
-                    <div>
-                      <h3 className="font-semibold">{order.customer_name}</h3>
-                      <p className="text-sm text-muted-foreground">{order.customer_email}</p>
-                    </div>
-                    <Badge>{order.status}</Badge>
-                  </div>
-                  <p className="text-sm mb-2">{order.delivery_address}</p>
-                  <p className="font-semibold text-coral-600">${order.total_amount}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {new Date(order.created_at).toLocaleDateString()}
-                  </p>
                 </CardContent>
               </Card>
             ))}

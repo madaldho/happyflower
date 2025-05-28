@@ -15,7 +15,8 @@ import {
   Bot, 
   User,
   Loader2,
-  LogIn
+  LogIn,
+  ShoppingCart
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -25,6 +26,8 @@ interface Message {
   content: string;
   image?: string;
   timestamp: Date;
+  estimatedPrice?: number;
+  canOrder?: boolean;
 }
 
 interface EnhancedAIFlowerChatProps {
@@ -41,6 +44,7 @@ export function EnhancedAIFlowerChat({
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [internalImageMode, setInternalImageMode] = useState(imageGenerationMode);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { user } = useAuth();
   const { toast } = useToast();
@@ -58,8 +62,8 @@ export function EnhancedAIFlowerChat({
       setMessages([{
         id: '1',
         role: 'assistant',
-        content: imageGenerationMode 
-          ? '🎨 Hello! I\'m in **Image Generation Mode**. Describe the flower arrangement you\'d like me to create for you, and I\'ll generate a beautiful custom image based on your description!'
+        content: internalImageMode 
+          ? '🎨 Hello! I\'m in **Image Generation Mode**. Describe the flower arrangement you\'d like me to create for you, and I\'ll generate a beautiful custom image with instant pricing!'
           : '🌸 Hello! I\'m your **AI Flower Expert**. I can help you find the perfect flowers, create custom arrangements, and provide expert advice. How can I help you today?',
         timestamp: new Date()
       }]);
@@ -71,7 +75,39 @@ export function EnhancedAIFlowerChat({
         timestamp: new Date()
       }]);
     }
-  }, [imageGenerationMode, user]);
+  }, [internalImageMode, user]);
+
+  const calculateEstimatedPrice = (prompt: string, imageGenerated: boolean = false) => {
+    // Simple pricing algorithm
+    const basePrice = 150000; // Rp 150,000 base
+    let multiplier = 1;
+
+    // Complexity factors
+    if (prompt.toLowerCase().includes('premium') || prompt.toLowerCase().includes('luxury')) multiplier += 0.5;
+    if (prompt.toLowerCase().includes('large') || prompt.toLowerCase().includes('big')) multiplier += 0.3;
+    if (prompt.toLowerCase().includes('wedding') || prompt.toLowerCase().includes('special')) multiplier += 0.4;
+    
+    // Count flower types mentioned
+    const flowerTypes = ['rose', 'lily', 'tulip', 'orchid', 'sunflower', 'carnation', 'peony'];
+    const mentionedFlowers = flowerTypes.filter(flower => 
+      prompt.toLowerCase().includes(flower)
+    ).length;
+    
+    if (mentionedFlowers > 2) multiplier += 0.2 * mentionedFlowers;
+    
+    // Image generation premium
+    if (imageGenerated) multiplier += 0.3;
+
+    return Math.round(basePrice * multiplier);
+  };
+
+  const toggleImageMode = () => {
+    const newMode = !internalImageMode;
+    setInternalImageMode(newMode);
+    if (onImageModeToggle) {
+      onImageModeToggle(newMode);
+    }
+  };
 
   const callPerplexityAPI = async (prompt: string) => {
     const response = await fetch('https://api.perplexity.ai/chat/completions', {
@@ -156,6 +192,65 @@ Be conversational but professional, like talking to a friend who's also a flower
     }
   };
 
+  const handleOrder = async (message: Message) => {
+    if (!user) {
+      toast({
+        title: "Authentication Required",
+        description: "Please log in to place an order.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      // Create order with estimated price
+      const { data: order, error } = await supabase
+        .from('orders')
+        .insert({
+          customer_name: user.email?.split('@')[0] || 'Customer',
+          customer_email: user.email,
+          delivery_address: 'To be filled during checkout',
+          total_amount: message.estimatedPrice || 0,
+          estimated_price: message.estimatedPrice,
+          status: 'waiting_admin_confirmation',
+          user_id: user.id
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      toast({
+        title: "Order Created!",
+        description: `Order #${order.id.slice(0, 8)} created. You'll be notified when admin confirms the price.`,
+      });
+
+      // Navigate to checkout with order info
+      navigate('/checkout', { 
+        state: { 
+          orderInfo: {
+            ...order,
+            items: [{
+              name: 'Custom Flower Arrangement',
+              description: message.content,
+              image: message.image,
+              price: message.estimatedPrice,
+              quantity: 1
+            }]
+          }
+        } 
+      });
+
+    } catch (error) {
+      console.error('Error creating order:', error);
+      toast({
+        title: "Error",
+        description: "Failed to create order. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim()) return;
@@ -183,14 +278,16 @@ Be conversational but professional, like talking to a friend who's also a flower
     try {
       let response: string;
       let generatedImageUrl: string | null = null;
+      let estimatedPrice: number | undefined;
 
-      if (imageGenerationMode) {
+      if (internalImageMode) {
         // Generate image mode
         generatedImageUrl = await generateImageWithRunware(input);
+        estimatedPrice = calculateEstimatedPrice(input, true);
         
         // Get AI description of the generated arrangement
         response = await callPerplexityAPI(
-          `I've generated a custom flower arrangement image based on the request: "${input}". Please provide a detailed, enthusiastic description of this beautiful arrangement as if you're a professional florist. Include suggestions for occasions, care tips, and mention that customers can request a quote for this custom arrangement. Make it engaging and professional like a marketing customer service agent.`
+          `I've generated a custom flower arrangement image based on the request: "${input}". Please provide a detailed, enthusiastic description of this beautiful arrangement as if you're a professional florist. Include suggestions for occasions, care tips, and mention that customers can order this exact arrangement. Make it engaging and professional like a marketing customer service agent. Keep it concise but informative.`
         );
       } else {
         // Regular chat mode
@@ -202,7 +299,9 @@ Be conversational but professional, like talking to a friend who's also a flower
         role: 'assistant',
         content: response,
         image: generatedImageUrl || undefined,
-        timestamp: new Date()
+        timestamp: new Date(),
+        estimatedPrice: estimatedPrice,
+        canOrder: !!generatedImageUrl
       };
 
       setMessages(prev => [...prev, assistantMessage]);
@@ -256,9 +355,9 @@ Be conversational but professional, like talking to a friend who's also a flower
           <div className="flex items-center gap-3">
             <Bot className="h-6 w-6 text-coral-500" />
             <CardTitle className="text-coral-600">🌸 AI Flower Expert</CardTitle>
-            {imageGenerationMode && (
+            {internalImageMode && (
               <Badge variant="secondary" className="bg-purple-100 text-purple-700">
-                🎨 Image Generation Mode
+                🎨 Image Mode
               </Badge>
             )}
           </div>
@@ -296,19 +395,28 @@ Be conversational but professional, like talking to a friend who's also a flower
                         alt="Generated flower arrangement"
                         className="max-w-full h-auto rounded-lg"
                       />
-                      {imageGenerationMode && message.role === 'assistant' && (
-                        <Button 
-                          size="sm" 
-                          className="mt-2 w-full bg-coral-400 hover:bg-coral-500 text-white"
-                          onClick={() => {
-                            toast({
-                              title: "Custom arrangement inquiry sent!",
-                              description: "Our team will contact you with pricing and availability.",
-                            });
-                          }}
-                        >
-                          Request Quote for Custom Arrangement
-                        </Button>
+                      
+                      {message.estimatedPrice && (
+                        <div className="mt-3 p-3 bg-green-50 rounded-lg border border-green-200">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="font-semibold text-green-800">
+                              Estimasi Harga: Rp {message.estimatedPrice.toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button 
+                              size="sm" 
+                              className="flex-1 bg-coral-500 hover:bg-coral-600 text-white"
+                              onClick={() => handleOrder(message)}
+                            >
+                              <ShoppingCart className="h-4 w-4 mr-1" />
+                              Pesan Sekarang
+                            </Button>
+                          </div>
+                          <p className="text-xs text-green-600 mt-1">
+                            *Harga dapat disesuaikan oleh admin sesuai kompleksitas
+                          </p>
+                        </div>
                       )}
                     </div>
                   )}
@@ -349,11 +457,21 @@ Be conversational but professional, like talking to a friend who's also a flower
 
         <div className="border-t p-4 flex-shrink-0">
           <form onSubmit={handleSubmit} className="flex gap-2">
+            <Button
+              type="button"
+              onClick={toggleImageMode}
+              variant={internalImageMode ? "default" : "outline"}
+              className={`flex-shrink-0 ${internalImageMode ? "bg-purple-500 hover:bg-purple-600" : "border-purple-300 text-purple-600 hover:bg-purple-50"}`}
+              size="sm"
+            >
+              <ImageIcon className="h-4 w-4" />
+            </Button>
+            
             <Input
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder={
-                imageGenerationMode 
+                internalImageMode 
                   ? "Describe the flower arrangement you want me to generate..."
                   : "Ask about flowers, arrangements, or get recommendations..."
               }
@@ -374,9 +492,9 @@ Be conversational but professional, like talking to a friend who's also a flower
             </Button>
           </form>
 
-          {imageGenerationMode && (
+          {internalImageMode && (
             <div className="mt-2 text-sm text-purple-600 bg-purple-50 p-2 rounded-lg">
-              🎨 **Image Generation Mode**: Describe your ideal flower arrangement and I'll create it for you!
+              🎨 **Image Generation Mode**: Describe your ideal flower arrangement and I'll create it with instant pricing!
             </div>
           )}
         </div>
