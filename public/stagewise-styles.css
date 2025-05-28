@@ -1,0 +1,42 @@
+/* Stagewise Toolbar Additional Styles */
+
+/* Pastikan input dan form di toolbar dapat diinteraksi dengan baik */
+.stagewise-toolbar input,
+.stagewise-toolbar textarea,
+.stagewise-toolbar form {
+  pointer-events: auto !important;
+  z-index: 10002 !important;
+  position: relative !important;
+}
+
+/* Style khusus untuk input yang sudah di-patch */
+.stagewise-patched-input {
+  border: 1px solid #4299e1 !important;
+  padding: 8px !important;
+  margin: 4px !important;
+  border-radius: 4px !important;
+}
+
+/* Style untuk tombol submit */
+.stagewise-toolbar button[type="submit"],
+.stagewise-toolbar form button {
+  background-color: #4299e1 !important;
+  color: white !important;
+  border: none !important;
+  padding: 8px 16px !important;
+  border-radius: 4px !important;
+  cursor: pointer !important;
+  margin: 4px !important;
+  font-weight: bold !important;
+}
+
+/* Hover effect untuk tombol */
+.stagewise-toolbar button:hover {
+  opacity: 0.9 !important;
+}
+
+/* Pastikan elemen yang aktif memiliki outline yang jelas */
+.stagewise-toolbar *:focus {
+  outline: 2px solid #4299e1 !important;
+  outline-offset: 2px !important;
+} 

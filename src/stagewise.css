@@ -1,0 +1,58 @@
+/* Stagewise Toolbar Styles */
+#stagewise-toolbar-container {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 9999;
+  pointer-events: auto;
+}
+
+/* Pastikan semua elemen toolbar dapat diinteraksi */
+#stagewise-toolbar-container *,
+.stagewise-toolbar-wrapper *,
+.stagewise-toolbar * {
+  pointer-events: auto !important;
+}
+
+/* Pastikan toolbar terlihat di atas elemen lain */
+.stagewise-toolbar {
+  z-index: 10000 !important;
+  position: relative !important;
+}
+
+/* Pastikan button toolbar dapat diklik */
+.stagewise-toolbar button {
+  cursor: pointer !important;
+  pointer-events: auto !important;
+}
+
+/* Pastikan input dan textarea dapat menerima fokus dan event keyboard */
+.stagewise-toolbar input,
+.stagewise-toolbar textarea {
+  pointer-events: auto !important;
+  z-index: 10002 !important;
+}
+
+/* Pastikan input dapat menerima event keyboard */
+.stagewise-toolbar input:focus,
+.stagewise-toolbar textarea:focus {
+  outline: 2px solid #4299e1 !important; /* Beri outline biru saat fokus */
+}
+
+/* Pastikan menu dropdown toolbar terlihat */
+.stagewise-toolbar-dropdown {
+  z-index: 10001 !important;
+}
+
+/* Style khusus untuk elemen yang menerima input */
+.stagewise-input-container {
+  position: relative;
+  z-index: 10002 !important;
+}
+
+/* Pastikan tombol submit terlihat dan dapat diklik */
+.stagewise-submit-button {
+  cursor: pointer !important;
+  pointer-events: auto !important;
+  z-index: 10002 !important;
+} 
