@@ -59,7 +59,7 @@ export default function CheckoutPage() {
 
   const saveOrderToDatabase = async () => {
     try {
-      // Save order to database with detailed product information
+      // Simpan order ke database - pastikan field sesuai dengan skema database
       const { data: orderData, error: orderError } = await supabase
         .from('orders')
         .insert({
@@ -68,17 +68,17 @@ export default function CheckoutPage() {
           customer_email: customerInfo.email,
           customer_phone: customerInfo.phone,
           delivery_address: customerInfo.address,
-          notes: customerInfo.specialInstructions,
+          notes: customerInfo.specialInstructions, // Menggunakan kolom notes untuk special instructions
           total_amount: finalTotal,
           status: 'pending',
-          payment_method: 'COD'
+          payment_method: 'COD' // Cash on Delivery
         })
         .select('id')
         .single();
 
       if (orderError) throw orderError;
 
-      // Save detailed order items with all product information
+      // Simpan order items
       if (orderData?.id) {
         const orderItems = cartItems.map(item => ({
           order_id: orderData.id,
@@ -94,18 +94,12 @@ export default function CheckoutPage() {
           .insert(orderItems);
 
         if (itemsError) throw itemsError;
-
-        console.log('Order saved successfully:', {
-          orderId: orderData.id,
-          items: orderItems,
-          total: finalTotal
-        });
       }
 
-      return orderData?.id;
+      return true;
     } catch (error) {
       console.error('Error saving order:', error);
-      return null;
+      return false;
     }
   };
 
@@ -124,16 +118,20 @@ export default function CheckoutPage() {
     setIsSubmitting(true);
 
     try {
-      const orderId = await saveOrderToDatabase();
+      // Simpan order ke database
+      const orderSaved = await saveOrderToDatabase();
       
-      if (orderId) {
+      if (orderSaved) {
+        // Hapus cart dari localStorage
         localStorage.removeItem('cartItems');
         
+        // Tampilkan pesan sukses
         toast({
           title: "Order placed successfully!",
-          description: `Order #${orderId.slice(0, 8)} has been created. Thank you for your order!`,
+          description: "Thank you for your order. We'll contact you soon!",
         });
         
+        // Redirect ke halaman utama dengan delay
         setTimeout(() => {
           navigate('/');
         }, 1500);

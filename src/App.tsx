@@ -1,4 +1,3 @@
-
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -13,7 +12,7 @@ import AuthPage from "./pages/AuthPage";
 import ProfilePage from "./pages/ProfilePage";
 import PaymentSuccessPage from "./pages/PaymentSuccessPage";
 import NotFound from "./pages/NotFound";
-import { StagewiseToolbarWrapper } from "./components/StagewiseToolbarWrapper";
+import StagewiseToolbarWrapper from "./components/StagewiseToolbarWrapper";
 
 const queryClient = new QueryClient();
 
@@ -37,7 +36,7 @@ const App = () => (
         </AuthProvider>
       </BrowserRouter>
       
-      {import.meta.env.DEV && <StagewiseToolbarWrapper tools={[]} onToolSelect={() => {}} />}
+      {import.meta.env.DEV && <StagewiseToolbarWrapper />}
     </TooltipProvider>
   </QueryClientProvider>
 );
