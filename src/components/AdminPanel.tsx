@@ -434,7 +434,8 @@ export function AdminPanel() {
     }
 
     try {
-      // Direct update via Supabase RLS instead of Edge Function
+      console.log(`Updating order ${orderId} price to ${newPrice}`);
+      
       const { error } = await supabase
         .from('orders')
         .update({
@@ -444,9 +445,13 @@ export function AdminPanel() {
         })
         .eq('id', orderId);
 
-      if (error) throw new Error(error.message);
+      if (error) {
+        console.error('Database error:', error);
+        throw new Error(error.message);
+      }
 
-      await loadData(); // Reload to sync with database
+      console.log('Price update successful, reloading data...');
+      await loadData();
 
       toast({
         title: "Price updated",
@@ -466,17 +471,26 @@ export function AdminPanel() {
     try {
       console.log(`Updating order ${orderId} status to ${status}`);
       
+      // Get current order data to check final_price
+      const { data: currentOrder, error: fetchError } = await supabase
+        .from('orders')
+        .select('final_price, status')
+        .eq('id', orderId)
+        .single();
+
+      if (fetchError) {
+        console.error('Error fetching current order:', fetchError);
+        throw new Error(fetchError.message);
+      }
+
       // If changing to confirmed status, ensure there's a final price
-      if (status === 'confirmed') {
-        const order = orders.find(o => o.id === orderId);
-        if (!order?.final_price) {
-          toast({
-            title: "Price Required",
-            description: "Please set a final price before confirming the order",
-            variant: "destructive"
-          });
-          return;
-        }
+      if (status === 'confirmed' && !currentOrder?.final_price) {
+        toast({
+          title: "Price Required",
+          description: "Please set a final price before confirming the order",
+          variant: "destructive"
+        });
+        return;
       }
 
       const updates: {
@@ -499,12 +513,12 @@ export function AdminPanel() {
         throw new Error(error.message);
       }
 
-      console.log('Database update successful, reloading data...');
-      await loadData(); // Reload to ensure sync with database
+      console.log('Status update successful, reloading data...');
+      await loadData();
 
       toast({
         title: "Status updated",
-        description: `Order has been marked as ${status}`,
+        description: `Order has been marked as ${status.replace('_', ' ')}`,
       });
     } catch (error) {
       console.error('Error updating order status:', error);
@@ -836,9 +850,9 @@ export function AdminPanel() {
                                 <div className="space-y-2">
                                   {order.order_items.map((item) => (
                                     <div key={item.id} className="flex items-center gap-2 p-2 bg-gray-50 rounded-md">
-                                      {item.products?.image_url && (
+                                      {item.product?.image_url && (
                                         <img 
-                                          src={item.products.image_url} 
+                                          src={item.product.image_url} 
                                           alt={item.product_name} 
                                           className="w-10 h-10 object-cover rounded"
                                         />
