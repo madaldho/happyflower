@@ -36,6 +36,45 @@ export type Database = {
         }
         Relationships: []
       }
+      chat_history: {
+        Row: {
+          created_at: string
+          id: string
+          image_url: string | null
+          is_user: boolean
+          message: string
+          metadata: Json | null
+          reference_image_uuid: string | null
+          session_id: string
+          thumbnail_url: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          image_url?: string | null
+          is_user?: boolean
+          message: string
+          metadata?: Json | null
+          reference_image_uuid?: string | null
+          session_id: string
+          thumbnail_url?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          image_url?: string | null
+          is_user?: boolean
+          message?: string
+          metadata?: Json | null
+          reference_image_uuid?: string | null
+          session_id?: string
+          thumbnail_url?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       generated_images: {
         Row: {
           created_at: string | null
@@ -43,6 +82,7 @@ export type Database = {
           image_url: string
           prompt: string
           status: string | null
+          thumbnail_url: string | null
           user_id: string | null
         }
         Insert: {
@@ -51,6 +91,7 @@ export type Database = {
           image_url: string
           prompt: string
           status?: string | null
+          thumbnail_url?: string | null
           user_id?: string | null
         }
         Update: {
@@ -59,31 +100,80 @@ export type Database = {
           image_url?: string
           prompt?: string
           status?: string | null
+          thumbnail_url?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      notifications: {
+        Row: {
+          created_at: string | null
+          id: string
+          is_read: boolean | null
+          message: string
+          metadata: Json | null
+          title: string
+          type: string
+          updated_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          is_read?: boolean | null
+          message: string
+          metadata?: Json | null
+          title: string
+          type: string
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          is_read?: boolean | null
+          message?: string
+          metadata?: Json | null
+          title?: string
+          type?: string
+          updated_at?: string | null
           user_id?: string | null
         }
         Relationships: []
       }
       order_items: {
         Row: {
+          created_at: string | null
           id: string
           order_id: string | null
           price: number
           product_id: string | null
+          product_name: string | null
+          product_price: number | null
           quantity: number
+          subtotal: number | null
         }
         Insert: {
+          created_at?: string | null
           id?: string
           order_id?: string | null
           price: number
           product_id?: string | null
+          product_name?: string | null
+          product_price?: number | null
           quantity?: number
+          subtotal?: number | null
         }
         Update: {
+          created_at?: string | null
           id?: string
           order_id?: string | null
           price?: number
           product_id?: string | null
+          product_name?: string | null
+          product_price?: number | null
           quantity?: number
+          subtotal?: number | null
         }
         Relationships: [
           {
@@ -114,9 +204,14 @@ export type Database = {
           generated_image_id: string | null
           id: string
           is_price_overridden: boolean | null
+          notes: string | null
+          payment_details: Json | null
+          payment_method: string | null
           price_locked: boolean | null
+          shipping_address: string | null
           status: string | null
           total_amount: number
+          updated_at: string | null
           user_id: string | null
         }
         Insert: {
@@ -130,9 +225,14 @@ export type Database = {
           generated_image_id?: string | null
           id?: string
           is_price_overridden?: boolean | null
+          notes?: string | null
+          payment_details?: Json | null
+          payment_method?: string | null
           price_locked?: boolean | null
+          shipping_address?: string | null
           status?: string | null
           total_amount: number
+          updated_at?: string | null
           user_id?: string | null
         }
         Update: {
@@ -146,9 +246,14 @@ export type Database = {
           generated_image_id?: string | null
           id?: string
           is_price_overridden?: boolean | null
+          notes?: string | null
+          payment_details?: Json | null
+          payment_method?: string | null
           price_locked?: boolean | null
+          shipping_address?: string | null
           status?: string | null
           total_amount?: number
+          updated_at?: string | null
           user_id?: string | null
         }
         Relationships: [
@@ -168,8 +273,10 @@ export type Database = {
           description: string | null
           id: string
           image_url: string | null
+          is_active: boolean | null
           name: string
           price: number
+          updated_at: string | null
         }
         Insert: {
           category?: string | null
@@ -177,8 +284,10 @@ export type Database = {
           description?: string | null
           id?: string
           image_url?: string | null
+          is_active?: boolean | null
           name: string
           price: number
+          updated_at?: string | null
         }
         Update: {
           category?: string | null
@@ -186,35 +295,76 @@ export type Database = {
           description?: string | null
           id?: string
           image_url?: string | null
+          is_active?: boolean | null
           name?: string
           price?: number
+          updated_at?: string | null
         }
         Relationships: []
       }
       profiles: {
         Row: {
+          address: string | null
           avatar_url: string | null
           created_at: string | null
           email: string
           full_name: string | null
           id: string
+          phone: string | null
           updated_at: string | null
         }
         Insert: {
+          address?: string | null
           avatar_url?: string | null
           created_at?: string | null
           email: string
           full_name?: string | null
           id: string
+          phone?: string | null
           updated_at?: string | null
         }
         Update: {
+          address?: string | null
           avatar_url?: string | null
           created_at?: string | null
           email?: string
           full_name?: string | null
           id?: string
+          phone?: string | null
           updated_at?: string | null
+        }
+        Relationships: []
+      }
+      reference_images: {
+        Row: {
+          created_at: string
+          id: string
+          image_url: string
+          image_uuid: string
+          prompt: string | null
+          thumbnail_url: string | null
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          image_url: string
+          image_uuid: string
+          prompt?: string | null
+          thumbnail_url?: string | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          image_url?: string
+          image_uuid?: string
+          prompt?: string | null
+          thumbnail_url?: string | null
+          updated_at?: string
+          user_id?: string | null
         }
         Relationships: []
       }
@@ -244,7 +394,30 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      add_admin_role_by_email: {
+        Args: { email_input: string }
+        Returns: boolean
+      }
+      admin_update_order_status: {
+        Args: { order_id: string; new_status: string }
+        Returns: Json
+      }
+      admin_update_product: {
+        Args: { product_id: string; product_data: Json }
+        Returns: Json
+      }
+      check_user_role: {
+        Args: { role_name: string }
+        Returns: boolean
+      }
+      clean_old_chat_history: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
+      cleanup_old_chat_history: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never
