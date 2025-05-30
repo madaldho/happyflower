@@ -17,6 +17,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface OrderItem {
   id: string;
@@ -104,7 +111,7 @@ export function AdminPanel() {
       if (trainingError) throw trainingError;
       setTrainingData(trainingDataRes || []);
 
-      // Load orders with order items and product details
+      // Load orders with detailed information
       const { data: ordersData, error: ordersError } = await supabase
         .from('orders')
         .select(`
@@ -112,7 +119,8 @@ export function AdminPanel() {
           generated_images:generated_image_id (
             id,
             image_url,
-            status
+            status,
+            prompt
           ),
           order_items (
             id,
@@ -124,7 +132,8 @@ export function AdminPanel() {
             products (
               name,
               image_url,
-              description
+              description,
+              category
             )
           )
         `)
@@ -145,6 +154,8 @@ export function AdminPanel() {
         };
       }));
 
+      console.log('Data loaded successfully:', ordersData?.length, 'orders');
+      
       toast({
         title: "Data loaded",
         description: "Admin data refreshed successfully",
@@ -439,22 +450,23 @@ export function AdminPanel() {
       const { error } = await supabase
         .from('orders')
         .update({
-          total_amount: newPrice,
           final_price: newPrice,
-          status: 'waiting_admin_confirmation'
+          total_amount: newPrice,
+          status: 'waiting_admin_confirmation',
+          updated_at: new Date().toISOString()
         })
         .eq('id', orderId);
 
       if (error) {
         console.error('Database error:', error);
-        throw new Error(error.message);
+        throw new Error(`Database error: ${error.message}`);
       }
 
       console.log('Price update successful, reloading data...');
       await loadData();
 
       toast({
-        title: "Price updated",
+        title: "Price Updated",
         description: `Order price has been updated to $${newPrice}`,
       });
     } catch (error) {
@@ -469,21 +481,23 @@ export function AdminPanel() {
 
   const updateOrderStatus = async (orderId: string, status: 'pending' | 'confirmed' | 'completed' | 'cancelled' | 'waiting_admin_confirmation') => {
     try {
-      console.log(`Updating order ${orderId} status to ${status}`);
+      console.log(`Starting status update for order ${orderId} to ${status}`);
       
-      // Get current order data to check final_price
+      // First, get current order data
       const { data: currentOrder, error: fetchError } = await supabase
         .from('orders')
-        .select('final_price, status')
+        .select('final_price, status, customer_name, customer_email')
         .eq('id', orderId)
         .single();
 
       if (fetchError) {
         console.error('Error fetching current order:', fetchError);
-        throw new Error(fetchError.message);
+        throw new Error(`Failed to fetch order: ${fetchError.message}`);
       }
 
-      // If changing to confirmed status, ensure there's a final price
+      console.log('Current order data:', currentOrder);
+
+      // Validation for confirmed status
       if (status === 'confirmed' && !currentOrder?.final_price) {
         toast({
           title: "Price Required",
@@ -493,37 +507,48 @@ export function AdminPanel() {
         return;
       }
 
+      // Prepare update data
       const updates: {
         status: typeof status;
         final_price?: number | null;
-      } = { status };
+        updated_at?: string;
+      } = { 
+        status,
+        updated_at: new Date().toISOString()
+      };
       
-      // If cancelling, clear final price
+      // Clear final price if cancelling
       if (status === 'cancelled') {
         updates.final_price = null;
       }
 
-      const { error } = await supabase
+      console.log('Updating with data:', updates);
+
+      // Update the order
+      const { error: updateError } = await supabase
         .from('orders')
         .update(updates)
         .eq('id', orderId);
 
-      if (error) {
-        console.error('Database error:', error);
-        throw new Error(error.message);
+      if (updateError) {
+        console.error('Database update error:', updateError);
+        throw new Error(`Database update failed: ${updateError.message}`);
       }
 
-      console.log('Status update successful, reloading data...');
+      console.log('Database update successful');
+
+      // Reload data to ensure UI sync
       await loadData();
 
       toast({
-        title: "Status updated",
-        description: `Order has been marked as ${status.replace('_', ' ')}`,
+        title: "Status Updated",
+        description: `Order for ${currentOrder.customer_name} has been marked as ${status.replace('_', ' ')}`,
       });
+
     } catch (error) {
       console.error('Error updating order status:', error);
       toast({
-        title: "Error",
+        title: "Update Failed",
         description: error.message || "Failed to update order status",
         variant: "destructive"
       });
@@ -576,14 +601,14 @@ export function AdminPanel() {
       case 'approved':
       case 'confirmed':
       case 'completed':
-        return 'bg-green-100 text-green-800';
+        return 'bg-green-100 text-green-800 border-green-200';
       case 'rejected':
       case 'cancelled':
-        return 'bg-red-100 text-red-800';
+        return 'bg-red-100 text-red-800 border-red-200';
       case 'waiting_admin_confirmation':
-        return 'bg-yellow-100 text-yellow-800';
+        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
       default:
-        return 'bg-blue-100 text-blue-800';
+        return 'bg-blue-100 text-blue-800 border-blue-200';
     }
   };
 
@@ -592,6 +617,33 @@ export function AdminPanel() {
     const date = new Date(dateString);
     return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
   };
+
+  // Status dropdown component
+  const OrderStatusDropdown = ({ order }: { order: OrderWithItems }) => (
+    <Select value={order.status} onValueChange={(value) => updateOrderStatus(order.id, value as any)}>
+      <SelectTrigger className="w-40">
+        <SelectValue>
+          <Badge className={`${getStatusColor(order.status)} capitalize px-3 py-1 rounded-full text-xs border`}>
+            {order.status.replace('_', ' ')}
+          </Badge>
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="pending">
+          <Badge className="bg-blue-100 text-blue-800 border-blue-200 px-3 py-1 rounded-full text-xs">Pending</Badge>
+        </SelectItem>
+        <SelectItem value="confirmed">
+          <Badge className="bg-green-100 text-green-800 border-green-200 px-3 py-1 rounded-full text-xs">Confirmed</Badge>
+        </SelectItem>
+        <SelectItem value="completed">
+          <Badge className="bg-green-100 text-green-800 border-green-200 px-3 py-1 rounded-full text-xs">Completed</Badge>
+        </SelectItem>
+        <SelectItem value="cancelled">
+          <Badge className="bg-red-100 text-red-800 border-red-200 px-3 py-1 rounded-full text-xs">Cancelled</Badge>
+        </SelectItem>
+      </SelectContent>
+    </Select>
+  );
 
   // Add Product Form Component
   const AddProductForm = () => (
@@ -732,7 +784,7 @@ export function AdminPanel() {
                     {activeTab === 'images' && <Image className="h-4 w-4" />}
                     {activeTab === 'training' && (
                       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
-                        <path d="M12 2a4 4 0 0 1 4 4c0 1.5-.8 2.8-2 3.4V11h4.5a2.5 2.5 0 0 1 0 5H18v2.6c1.2.6 2 2 2 3.4a4 4 0 0 1-4 4 4 4 0 0 1-4-4c0-1.5.8-2.8 2-3.4V16H9.5a2.5 2.5 0 0 1 0-5H14V9.4C12.8 8.8 12 7.5 12 6a4 4 0 0 1 4-4z"></path>
+                        <path d="M12 2a4 4 0 0 1 4 4c0 1.5-.8 2.8-2 3.4V11h4.5a2.5 2.5 0 0 1 0 5H18v2.6c1.2.6 2 2 2 3.4a4 4 0 0 1-4 4a4 4 0 0 1-4-4c0-1.5.8-2.8 2-3.4V16H9.5a2.5 2.5 0 0 1 0-5H14V9.4C12.8 8.8 12 7.5 12 6a4 4 0 0 1 4-4z"></path>
                       </svg>
                     )}
                     {activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}
@@ -818,8 +870,8 @@ export function AdminPanel() {
                           )}
                           
                           <div className="p-3 sm:p-4 flex-1">
-                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-2 gap-2">
-                              <div>
+                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-3 gap-2">
+                              <div className="flex-1">
                                 <h3 className="font-semibold text-lg flex items-center gap-1">
                                   <Package className="h-4 w-4 text-gray-500" />
                                   Order #{order.id.slice(0, 8)}
@@ -828,14 +880,17 @@ export function AdminPanel() {
                                   <Mail className="h-3 w-3" />
                                   {order.customer_name} - {order.customer_email}
                                 </p>
+                                {order.customer_phone && (
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    📞 {order.customer_phone}
+                                  </p>
+                                )}
                                 <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
                                   <Clock className="h-3 w-3" />
                                   {formatDate(order.created_at)}
                                 </p>
                               </div>
-                              <Badge className={`${getStatusColor(order.status)} capitalize px-3 py-1 rounded-full text-xs`}>
-                                {order.status.replace('_', ' ')}
-                              </Badge>
+                              <OrderStatusDropdown order={order} />
                             </div>
                             
                             <p className="text-sm mb-3 bg-gray-50 p-2 rounded-md flex items-start gap-1">
@@ -843,39 +898,68 @@ export function AdminPanel() {
                               <span>{order.delivery_address}</span>
                             </p>
 
-                            {/* Product Details */}
+                            {/* Detailed Product Information */}
                             {order.order_items && order.order_items.length > 0 && (
                               <div className="mb-3">
-                                <h4 className="text-sm font-medium mb-2">Ordered Products:</h4>
+                                <h4 className="text-sm font-medium mb-2 flex items-center gap-1">
+                                  <ShoppingBag className="h-4 w-4" />
+                                  Ordered Products ({order.order_items.length}):
+                                </h4>
                                 <div className="space-y-2">
                                   {order.order_items.map((item) => (
-                                    <div key={item.id} className="flex items-center gap-2 p-2 bg-gray-50 rounded-md">
+                                    <div key={item.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-md border">
                                       {item.product?.image_url && (
                                         <img 
                                           src={item.product.image_url} 
                                           alt={item.product_name} 
-                                          className="w-10 h-10 object-cover rounded"
+                                          className="w-12 h-12 object-cover rounded border"
                                         />
                                       )}
                                       <div className="flex-1">
-                                        <p className="text-xs font-medium">{item.product_name}</p>
-                                        <p className="text-xs text-gray-600">Qty: {item.quantity} × ${item.price} = ${item.subtotal}</p>
+                                        <p className="text-sm font-medium">{item.product_name}</p>
+                                        {item.product?.description && (
+                                          <p className="text-xs text-gray-600 line-clamp-1">{item.product.description}</p>
+                                        )}
+                                        <div className="flex items-center gap-2 mt-1">
+                                          <Badge variant="outline" className="text-xs">
+                                            Qty: {item.quantity}
+                                          </Badge>
+                                          <Badge variant="outline" className="text-xs">
+                                            ${item.price}
+                                          </Badge>
+                                          <Badge className="bg-green-100 text-green-800 text-xs">
+                                            Total: ${item.subtotal}
+                                          </Badge>
+                                        </div>
                                       </div>
                                     </div>
                                   ))}
                                 </div>
                               </div>
                             )}
+
+                            {/* Generated Image Info */}
+                            {relatedImage && (
+                              <div className="mb-3 p-2 bg-blue-50 rounded-md">
+                                <h4 className="text-xs font-medium text-blue-800 mb-1">AI Generated Design:</h4>
+                                <p className="text-xs text-blue-700 line-clamp-2">{relatedImage.prompt}</p>
+                                <Badge className={`mt-1 ${getStatusColor(relatedImage.status)} text-xs`}>
+                                  Image: {relatedImage.status}
+                                </Badge>
+                              </div>
+                            )}
                     
                             {/* Price information */}
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
                               {order.estimated_price && (
-                                <div className="bg-yellow-50 p-2 sm:p-3 rounded-lg">
-                                  <p className="text-sm font-medium">Estimated: ${order.estimated_price.toLocaleString()}</p>
+                                <div className="bg-yellow-50 p-2 sm:p-3 rounded-lg border border-yellow-200">
+                                  <p className="text-sm font-medium text-yellow-800">
+                                    Estimated: ${order.estimated_price.toLocaleString()}
+                                  </p>
                                 </div>
                               )}
                               
-                              <div className="bg-green-50 p-2 sm:p-3 rounded-lg">
+                              <div className="bg-green-50 p-2 sm:p-3 rounded-lg border border-green-200">
                                 <p className="text-sm font-bold text-green-800">
                                   {order.final_price ? `Final: $${order.final_price.toLocaleString()}` : 
                                   `Total: $${order.total_amount.toLocaleString()}`}
@@ -883,9 +967,9 @@ export function AdminPanel() {
                               </div>
                             </div>
                             
-                            {/* Admin confirmation section */}
+                            {/* Admin price setting */}
                             {order.status === 'waiting_admin_confirmation' && (
-                              <div className="flex flex-col sm:flex-row gap-2 mb-4 p-2 sm:p-3 bg-blue-50 rounded-lg">
+                              <div className="flex flex-col sm:flex-row gap-2 mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
                                 <Input
                                   type="number"
                                   placeholder="Set final price"
@@ -912,63 +996,12 @@ export function AdminPanel() {
                                 </Button>
                               </div>
                             )}
-                    
-                            {/* Status buttons */}
-                            <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 justify-end mt-3">
-                              <Button 
-                                size="sm" 
-                                variant={order.status === "pending" ? "default" : "outline"}
-                                onClick={() => updateOrderStatus(order.id, "pending")}
-                                className="flex-1 sm:flex-none"
-                              >
-                                Pending
-                              </Button>
-                              <Button 
-                                size="sm" 
-                                variant={order.status === "confirmed" ? "default" : "outline"}
-                                onClick={() => updateOrderStatus(order.id, "confirmed")}
-                                className="flex-1 sm:flex-none"
-                              >
-                                Confirm
-                              </Button>
-                              <Button 
-                                size="sm" 
-                                variant={order.status === "completed" ? "default" : "outline"}
-                                onClick={() => updateOrderStatus(order.id, "completed")}
-                                className="flex-1 sm:flex-none"
-                              >
-                                Complete
-                              </Button>
-                              <Button 
-                                size="sm" 
-                                variant={order.status === "cancelled" ? "destructive" : "outline"}
-                                onClick={() => updateOrderStatus(order.id, "cancelled")}
-                                className="flex-1 sm:flex-none"
-                              >
-                                Cancel
-                              </Button>
-                            </div>
-                            
-                            {/* Related image status */}
-                            {relatedImage && (
-                              <div className="mt-3 pt-3 border-t border-gray-100">
-                                <div className="flex justify-between items-center">
-                                  <p className="text-xs text-muted-foreground flex items-center">
-                                    <Image className="h-3 w-3 mr-1" />
-                                    Image Status: 
-                                    <Badge className={`ml-2 ${getStatusColor(relatedImage.status)} capitalize px-2 py-0 rounded-full text-xs`}>
-                                      {relatedImage.status}
-                                    </Badge>
-                                  </p>
-                                  
-                                  {((relatedImage.status === 'rejected' && order.status !== 'cancelled') ||
-                                    (relatedImage.status === 'approved' && order.status === 'cancelled')) && (
-                                    <Badge variant="destructive" className="text-xs flex items-center gap-1">
-                                      <AlertCircle className="h-3 w-3" />
-                                      Status mismatch!
-                                    </Badge>
-                                  )}
-                                </div>
+
+                            {/* Additional Order Details */}
+                            {order.notes && (
+                              <div className="mt-3 p-2 bg-amber-50 rounded-md border border-amber-200">
+                                <p className="text-xs font-medium text-amber-800">Customer Notes:</p>
+                                <p className="text-xs text-amber-700">{order.notes}</p>
                               </div>
                             )}
                           </div>

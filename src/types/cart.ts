@@ -6,6 +6,9 @@ export interface CartItem {
   quantity: number;
   image_url?: string;
   description: string;
+  image?: string; // Keep for backward compatibility
+  category?: string;
+  rating?: number;
 }
 
 export interface CartState {
