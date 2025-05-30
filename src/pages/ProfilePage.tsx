@@ -9,17 +9,36 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { ArrowLeft, User, History, Settings, Package, LogOut, Edit2, Save, X } from 'lucide-react';
+import { ArrowLeft, User, History, Settings, Package, LogOut, Edit2, Save, X, Eye, ShoppingCart } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import type { Order } from '@/types';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+
+interface OrderItem {
+  id: string;
+  product_name: string;
+  quantity: number;
+  price: number;
+  subtotal: number;
+}
+
+interface OrderWithItems extends Order {
+  order_items?: OrderItem[];
+}
 
 export default function ProfilePage() {
   const { user, profile, signOut, loading } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
   
-  const [userOrders, setUserOrders] = useState<Order[]>([]);
+  const [userOrders, setUserOrders] = useState<OrderWithItems[]>([]);
   const [isLoadingOrders, setIsLoadingOrders] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [editData, setEditData] = useState({
@@ -44,7 +63,16 @@ export default function ProfilePage() {
     try {
       const { data: orders, error } = await supabase
         .from('orders')
-        .select('*')
+        .select(`
+          *,
+          order_items (
+            id,
+            product_name,
+            quantity,
+            price,
+            subtotal
+          )
+        `)
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
@@ -52,7 +80,8 @@ export default function ProfilePage() {
 
       setUserOrders((orders || []).map(order => ({
         ...order,
-        status: order.status as 'pending' | 'confirmed' | 'completed' | 'cancelled' | 'waiting_admin_confirmation'
+        status: order.status as 'pending' | 'confirmed' | 'completed' | 'cancelled' | 'waiting_admin_confirmation',
+        order_items: order.order_items || []
       })));
     } catch (error) {
       console.error('Error loading user orders:', error);
@@ -104,6 +133,120 @@ export default function ProfilePage() {
     });
   };
 
+  const getStatusColor = (status: string) => {
+    switch(status) {
+      case 'confirmed':
+      case 'completed':
+        return 'bg-green-100 text-green-800';
+      case 'cancelled':
+        return 'bg-red-100 text-red-800';
+      case 'waiting_admin_confirmation':
+        return 'bg-yellow-100 text-yellow-800';
+      default:
+        return 'bg-blue-100 text-blue-800';
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+  };
+
+  // Order Details Dialog Component
+  const OrderDetailsDialog = ({ order }: { order: OrderWithItems }) => (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm">
+          <Eye className="h-4 w-4 mr-2" />
+          View Details
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Order Details #{order.id.slice(0, 8)}</DialogTitle>
+        </DialogHeader>
+        
+        <div className="space-y-6">
+          {/* Order Status and Info */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <h3 className="font-semibold mb-2">Order Information</h3>
+              <p><strong>Status:</strong> <Badge className={getStatusColor(order.status)}>{order.status.replace('_', ' ')}</Badge></p>
+              <p><strong>Order Date:</strong> {formatDate(order.created_at)}</p>
+              <p><strong>Payment Method:</strong> {order.payment_method || 'COD'}</p>
+            </div>
+            <div>
+              <h3 className="font-semibold mb-2">Customer Information</h3>
+              <p><strong>Name:</strong> {order.customer_name}</p>
+              <p><strong>Email:</strong> {order.customer_email}</p>
+              {order.customer_phone && <p><strong>Phone:</strong> {order.customer_phone}</p>}
+            </div>
+          </div>
+
+          {/* Delivery Address */}
+          <div>
+            <h3 className="font-semibold mb-2">Delivery Address</h3>
+            <p className="bg-gray-50 p-3 rounded-md">{order.delivery_address}</p>
+          </div>
+
+          {/* Order Items */}
+          <div>
+            <h3 className="font-semibold mb-2 flex items-center gap-2">
+              <ShoppingCart className="h-4 w-4" />
+              Order Items ({order.order_items?.length || 0} items)
+            </h3>
+            {order.order_items && order.order_items.length > 0 ? (
+              <div className="space-y-2">
+                {order.order_items.map((item) => (
+                  <div key={item.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-md">
+                    <div>
+                      <p className="font-medium">{item.product_name}</p>
+                      <p className="text-sm text-gray-600">Quantity: {item.quantity} × ${item.price}</p>
+                    </div>
+                    <p className="font-semibold">${item.subtotal.toFixed(2)}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-gray-500 italic">No items found for this order</p>
+            )}
+          </div>
+
+          {/* Price Information */}
+          <div className="border-t pt-4">
+            <h3 className="font-semibold mb-2">Price Information</h3>
+            <div className="space-y-2">
+              {order.estimated_price && (
+                <div className="flex justify-between">
+                  <span>Estimated Price:</span>
+                  <span>${order.estimated_price.toFixed(2)}</span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span>Total Amount:</span>
+                <span>${order.total_amount.toFixed(2)}</span>
+              </div>
+              {order.final_price && (
+                <div className="flex justify-between font-semibold text-green-600">
+                  <span>Final Price:</span>
+                  <span>${order.final_price.toFixed(2)}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Notes */}
+          {order.notes && (
+            <div>
+              <h3 className="font-semibold mb-2">Special Instructions</h3>
+              <p className="bg-gray-50 p-3 rounded-md">{order.notes}</p>
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-pink-50 via-peach-50 to-coral-50 flex items-center justify-center">
@@ -121,7 +264,6 @@ export default function ProfilePage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-pink-50 via-peach-50 to-coral-50">
-      {/* Header */}
       <header className="sticky top-0 z-40 border-b bg-white/80 backdrop-blur-md">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center gap-4">
@@ -140,7 +282,6 @@ export default function ProfilePage() {
       </header>
 
       <div className="container mx-auto px-4 py-8 max-w-4xl">
-        {/* Profile Header */}
         <Card className="mb-8">
           <CardContent className="p-8">
             <div className="flex flex-col md:flex-row items-center gap-6">
@@ -152,22 +293,18 @@ export default function ProfilePage() {
                   {profile?.full_name || 'Welcome!'}
                 </h2>
                 <p className="text-gray-600 mb-4">{user.email}</p>
-                <div className="flex flex-col md:flex-row gap-3">
-               
-                  <Button
-                    onClick={handleSignOut}
-                    variant="destructive"
-                  >
-                    <LogOut className="h-4 w-4 mr-2" />
-                    Sign Out
-                  </Button>
-                </div>
+                <Button
+                  onClick={handleSignOut}
+                  variant="destructive"
+                >
+                  <LogOut className="h-4 w-4 mr-2" />
+                  Sign Out
+                </Button>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        {/* Tabs */}
         <Tabs defaultValue="orders" className="w-full">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="orders" className="flex items-center gap-2">
@@ -205,22 +342,14 @@ export default function ProfilePage() {
                     {userOrders.map((order) => (
                       <Card key={order.id} className="overflow-hidden">
                         <CardContent className="p-4">
-                          <div className="flex justify-between items-start mb-2">
+                          <div className="flex justify-between items-start mb-3">
                             <div>
                               <p className="font-medium">Order #{order.id.slice(0, 8)}</p>
                               <p className="text-sm text-gray-600">
-                                {new Date(order.created_at).toLocaleDateString('id-ID', {
-                                  day: 'numeric',
-                                  month: 'long',
-                                  year: 'numeric'
-                                })}
+                                {formatDate(order.created_at)}
                               </p>
                             </div>
-                            <Badge variant={
-                              order.status === 'waiting_admin_confirmation' ? 'secondary' :
-                              order.status === 'confirmed' ? 'default' :
-                              order.status === 'completed' ? 'default' : 'destructive'
-                            }>
+                            <Badge className={getStatusColor(order.status)}>
                               {order.status === 'waiting_admin_confirmation' ? 'Waiting Confirmation' :
                                order.status === 'confirmed' ? 'Confirmed' :
                                order.status === 'completed' ? 'Completed' : 
@@ -228,19 +357,39 @@ export default function ProfilePage() {
                             </Badge>
                           </div>
                           
-                          <p className="text-sm text-gray-600 mb-2">{order.delivery_address}</p>
+                          <p className="text-sm text-gray-600 mb-3">{order.delivery_address}</p>
                           
-                          <div className="text-right">
-                            {order.estimated_price && order.status === 'waiting_admin_confirmation' && (
-                              <p className="text-sm text-orange-600">
-                                Estimated: ${order.estimated_price.toLocaleString()}
+                          {/* Order Items Summary */}
+                          {order.order_items && order.order_items.length > 0 && (
+                            <div className="bg-blue-50 p-3 rounded-md mb-3">
+                              <p className="text-sm font-medium mb-1">Items:</p>
+                              <div className="text-sm space-y-1">
+                                {order.order_items.slice(0, 2).map((item) => (
+                                  <p key={item.id} className="text-gray-700">
+                                    {item.quantity}x {item.product_name} - ${item.subtotal.toFixed(2)}
+                                  </p>
+                                ))}
+                                {order.order_items.length > 2 && (
+                                  <p className="text-gray-500 italic">+{order.order_items.length - 2} more items...</p>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                          
+                          <div className="flex justify-between items-center">
+                            <div className="text-right">
+                              {order.estimated_price && order.status === 'waiting_admin_confirmation' && (
+                                <p className="text-sm text-orange-600">
+                                  Estimated: ${order.estimated_price.toLocaleString()}
+                                </p>
+                              )}
+                              <p className="font-semibold text-coral-600">
+                                {order.final_price ? `$${order.final_price.toLocaleString()}` :
+                                 order.estimated_price ? `$${order.estimated_price.toLocaleString()}` :
+                                 `$${order.total_amount.toLocaleString()}`}
                               </p>
-                            )}
-                            <p className="font-semibold text-coral-600">
-                              {order.final_price ? `$${order.final_price.toLocaleString()}` :
-                               order.estimated_price ? `$${order.estimated_price.toLocaleString()}` :
-                               `$${order.total_amount.toLocaleString()}`}
-                            </p>
+                            </div>
+                            <OrderDetailsDialog order={order} />
                           </div>
                         </CardContent>
                       </Card>

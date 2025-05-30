@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Edit, Trash2, Check, X, Image, DollarSign, Search, RefreshCw, Package, ShoppingBag, AlertCircle, Calendar, Mail, MapPin, Clock, ChevronDown, ArrowLeft } from 'lucide-react';
+import { Plus, Edit, Trash2, Check, X, Image, DollarSign, Search, RefreshCw, Package, ShoppingBag, AlertCircle, Calendar, Mail, MapPin, Clock, ChevronDown, ArrowLeft, Eye, ShoppingCart } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import type { Product, GeneratedImage, AITrainingData, Order } from '@/types';
@@ -17,12 +17,31 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+
+interface OrderItem {
+  id: string;
+  product_name: string;
+  quantity: number;
+  price: number;
+  subtotal: number;
+}
+
+interface OrderWithItems extends Order {
+  order_items?: OrderItem[];
+}
 
 export function AdminPanel() {
   const [products, setProducts] = useState<Product[]>([]);
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
   const [trainingData, setTrainingData] = useState<AITrainingData[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [orders, setOrders] = useState<OrderWithItems[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('orders');
@@ -86,11 +105,18 @@ export function AdminPanel() {
       if (trainingError) throw trainingError;
       setTrainingData(trainingDataRes || []);
 
-      // Load orders with related generated images
+      // Load orders with order items and generated images
       const { data: ordersData, error: ordersError } = await supabase
         .from('orders')
         .select(`
           *,
+          order_items (
+            id,
+            product_name,
+            quantity,
+            price,
+            subtotal
+          ),
           generated_images:generated_image_id (
             id,
             image_url,
@@ -101,16 +127,17 @@ export function AdminPanel() {
 
       if (ordersError) throw ordersError;
       
-      // Fix the orders type casting with proper type handling
+      console.log('Loaded orders with items:', ordersData);
+      
       setOrders((ordersData || []).map(order => {
         return {
           ...order,
           status: order.status as 'pending' | 'confirmed' | 'completed' | 'cancelled' | 'waiting_admin_confirmation',
-          // Treat generated_images as partial with type casting
           generated_images: order.generated_images ? {
             ...order.generated_images,
             status: order.generated_images.status as 'pending' | 'approved' | 'rejected'
-          } : null
+          } : null,
+          order_items: order.order_items || []
         };
       }));
 
@@ -543,6 +570,101 @@ export function AdminPanel() {
     return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
   };
 
+  // Order Details Dialog Component
+  const OrderDetailsDialog = ({ order }: { order: OrderWithItems }) => (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm">
+          <Eye className="h-4 w-4 mr-2" />
+          View Details
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Order Details #{order.id.slice(0, 8)}</DialogTitle>
+        </DialogHeader>
+        
+        <div className="space-y-6">
+          {/* Customer Information */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <h3 className="font-semibold mb-2">Customer Information</h3>
+              <p><strong>Name:</strong> {order.customer_name}</p>
+              <p><strong>Email:</strong> {order.customer_email}</p>
+              {order.customer_phone && <p><strong>Phone:</strong> {order.customer_phone}</p>}
+            </div>
+            <div>
+              <h3 className="font-semibold mb-2">Order Information</h3>
+              <p><strong>Status:</strong> <Badge className={getStatusColor(order.status)}>{order.status}</Badge></p>
+              <p><strong>Order Date:</strong> {formatDate(order.created_at)}</p>
+              <p><strong>Payment Method:</strong> {order.payment_method || 'COD'}</p>
+            </div>
+          </div>
+
+          {/* Delivery Address */}
+          <div>
+            <h3 className="font-semibold mb-2">Delivery Address</h3>
+            <p className="bg-gray-50 p-3 rounded-md">{order.delivery_address}</p>
+          </div>
+
+          {/* Order Items */}
+          <div>
+            <h3 className="font-semibold mb-2 flex items-center gap-2">
+              <ShoppingCart className="h-4 w-4" />
+              Order Items ({order.order_items?.length || 0} items)
+            </h3>
+            {order.order_items && order.order_items.length > 0 ? (
+              <div className="space-y-2">
+                {order.order_items.map((item) => (
+                  <div key={item.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-md">
+                    <div>
+                      <p className="font-medium">{item.product_name}</p>
+                      <p className="text-sm text-gray-600">Quantity: {item.quantity} × ${item.price}</p>
+                    </div>
+                    <p className="font-semibold">${item.subtotal.toFixed(2)}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-gray-500 italic">No items found for this order</p>
+            )}
+          </div>
+
+          {/* Price Information */}
+          <div className="border-t pt-4">
+            <h3 className="font-semibold mb-2">Price Information</h3>
+            <div className="space-y-2">
+              {order.estimated_price && (
+                <div className="flex justify-between">
+                  <span>Estimated Price:</span>
+                  <span>${order.estimated_price.toFixed(2)}</span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span>Total Amount:</span>
+                <span>${order.total_amount.toFixed(2)}</span>
+              </div>
+              {order.final_price && (
+                <div className="flex justify-between font-semibold text-green-600">
+                  <span>Final Price:</span>
+                  <span>${order.final_price.toFixed(2)}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Notes */}
+          {order.notes && (
+            <div>
+              <h3 className="font-semibold mb-2">Special Instructions</h3>
+              <p className="bg-gray-50 p-3 rounded-md">{order.notes}</p>
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+
   // Add Product Form Component
   const AddProductForm = () => (
     <div className="min-h-screen bg-gradient-to-br from-pink-50 via-peach-50 to-coral-50 pb-10">
@@ -682,7 +804,7 @@ export function AdminPanel() {
                     {activeTab === 'images' && <Image className="h-4 w-4" />}
                     {activeTab === 'training' && (
                       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
-                        <path d="M12 2a4 4 0 0 1 4 4c0 1.5-.8 2.8-2 3.4V11h4.5a2.5 2.5 0 0 1 0 5H18v2.6c1.2.6 2 2 2 3.4a4 4 0 0 1-4 4 4 4 0 0 1-4-4c0-1.5.8-2.8 2-3.4V16H9.5a2.5 2.5 0 0 1 0-5H14V9.4C12.8 8.8 12 7.5 12 6a4 4 0 0 1 4-4z"></path>
+                        <path d="M12 2a4 4 0 0 1 4 4c0 1.5-.8 2.8-2 3.4V11h4.5a2.5 2.5 0 0 1 0 5H18v2.6c1.2.6 2 2 2 3.4a4 4 0 0 1-4 4a4 4 0 0 1-4-4c0-1.5.8-2.8 2-3.4V16H9.5a2.5 2.5 0 0 1 0-5H14V9.4C12.8 8.8 12 7.5 12 6a4 4 0 0 1 4-4z"></path>
                       </svg>
                     )}
                     {activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}
@@ -731,7 +853,7 @@ export function AdminPanel() {
                 </TabsTrigger>
                 <TabsTrigger value="training" className="flex items-center gap-2">
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
-                    <path d="M12 2a4 4 0 0 1 4 4c0 1.5-.8 2.8-2 3.4V11h4.5a2.5 2.5 0 0 1 0 5H18v2.6c1.2.6 2 2 2 3.4a4 4 0 0 1-4 4 4 4 0 0 1-4-4c0-1.5.8-2.8 2-3.4V16H9.5a2.5 2.5 0 0 1 0-5H14V9.4C12.8 8.8 12 7.5 12 6a4 4 0 0 1 4-4z"></path>
+                    <path d="M12 2a4 4 0 0 1 4 4c0 1.5-.8 2.8-2 3.4V11h4.5a2.5 2.5 0 0 1 0 5H18v2.6c1.2.6 2 2 2 3.4a4 4 0 0 1-4 4a4 4 0 0 1-4-4c0-1.5.8-2.8 2-3.4V16H9.5a2.5 2.5 0 0 1 0-5H14V9.4C12.8 8.8 12 7.5 12 6a4 4 0 0 1 4-4z"></path>
                   </svg>
                   <span>Training</span>
                 </TabsTrigger>
@@ -740,27 +862,25 @@ export function AdminPanel() {
           </div>
 
           <TabsContent value="orders" className="space-y-4 mt-4 sm:mt-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {isLoading ? (
+            <div className="grid grid-cols-1 gap-4">
+              {isLoading ? (
                 <div className="col-span-full flex justify-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-coral-500"></div>
-              </div>
-            ) : filteredOrders.length === 0 ? (
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-coral-500"></div>
+                </div>
+              ) : filteredOrders.length === 0 ? (
                 <div className="col-span-full text-center py-8 bg-gray-50 rounded-lg">
-                <p className="text-gray-500">No orders found</p>
-              </div>
-            ) : (
+                  <p className="text-gray-500">No orders found</p>
+                </div>
+              ) : (
                 filteredOrders.map((order) => {
-                  // Get related image if exists
                   const relatedImage = order.generated_images ? order.generated_images : null;
                   
                   return (
                     <Card key={order.id} className="overflow-hidden border-0 shadow-md hover:shadow-lg transition-shadow">
                       <CardContent className="p-0">
-                        <div className="flex flex-col md:flex-row">
-                          {/* If there's a related image, show it */}
+                        <div className="flex flex-col lg:flex-row">
                           {relatedImage && relatedImage.image_url && (
-                            <div className="w-full md:w-1/3 h-48 md:h-auto">
+                            <div className="w-full lg:w-1/4 h-48 lg:h-auto">
                               <img 
                                 src={relatedImage.image_url} 
                                 alt="Order Image" 
@@ -769,10 +889,10 @@ export function AdminPanel() {
                             </div>
                           )}
                           
-                          <div className="p-3 sm:p-4 flex-1">
-                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-2 gap-2">
-                      <div>
-                                <h3 className="font-semibold text-lg flex items-center gap-1">
+                          <div className="p-4 flex-1">
+                            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-4 gap-4">
+                              <div>
+                                <h3 className="font-semibold text-lg flex items-center gap-2">
                                   <Package className="h-4 w-4 text-gray-500" />
                                   Order #{order.id.slice(0, 8)}
                                 </h3>
@@ -783,27 +903,46 @@ export function AdminPanel() {
                                 <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
                                   <Clock className="h-3 w-3" />
                                   {formatDate(order.created_at)}
-                        </p>
-                      </div>
+                                </p>
+                              </div>
                               <Badge className={`${getStatusColor(order.status)} capitalize px-3 py-1 rounded-full text-xs`}>
                                 {order.status.replace('_', ' ')}
-                      </Badge>
-                    </div>
+                              </Badge>
+                            </div>
                             
-                            <p className="text-sm mb-3 bg-gray-50 p-2 rounded-md flex items-start gap-1">
-                              <MapPin className="h-3 w-3 mt-0.5 flex-shrink-0" />
-                              <span>{order.delivery_address}</span>
-                            </p>
+                            <div className="mb-4">
+                              <p className="text-sm mb-2 bg-gray-50 p-2 rounded-md flex items-start gap-1">
+                                <MapPin className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                                <span>{order.delivery_address}</span>
+                              </p>
+                              
+                              {/* Order Items Summary */}
+                              {order.order_items && order.order_items.length > 0 && (
+                                <div className="bg-blue-50 p-3 rounded-md">
+                                  <p className="text-sm font-medium mb-1">Items Ordered:</p>
+                                  <div className="text-sm space-y-1">
+                                    {order.order_items.slice(0, 2).map((item) => (
+                                      <p key={item.id} className="text-gray-700">
+                                        {item.quantity}x {item.product_name} - ${item.subtotal.toFixed(2)}
+                                      </p>
+                                    ))}
+                                    {order.order_items.length > 2 && (
+                                      <p className="text-gray-500 italic">+{order.order_items.length - 2} more items...</p>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
                     
                             {/* Price information */}
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
-                    {order.estimated_price && (
-                                <div className="bg-yellow-50 p-2 sm:p-3 rounded-lg">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
+                              {order.estimated_price && (
+                                <div className="bg-yellow-50 p-3 rounded-lg">
                                   <p className="text-sm font-medium">Estimated: ${order.estimated_price.toLocaleString()}</p>
                                 </div>
                               )}
                               
-                              <div className="bg-green-50 p-2 sm:p-3 rounded-lg">
+                              <div className="bg-green-50 p-3 rounded-lg">
                                 <p className="text-sm font-bold text-green-800">
                                   {order.final_price ? `Final: $${order.final_price.toLocaleString()}` : 
                                   `Total: $${order.total_amount.toLocaleString()}`}
@@ -812,102 +951,78 @@ export function AdminPanel() {
                             </div>
                             
                             {/* Admin confirmation section */}
-                        {order.status === 'waiting_admin_confirmation' && (
-                              <div className="flex flex-col sm:flex-row gap-2 mb-4 p-2 sm:p-3 bg-blue-50 rounded-lg">
-                            <Input
-                              type="number"
-                              placeholder="Set final price"
+                            {order.status === 'waiting_admin_confirmation' && (
+                              <div className="flex flex-col sm:flex-row gap-2 mb-4 p-3 bg-blue-50 rounded-lg">
+                                <Input
+                                  type="number"
+                                  placeholder="Set final price"
                                   className="w-full sm:w-40"
-                              onKeyPress={(e) => {
-                                if (e.key === 'Enter') {
-                                  const target = e.target as HTMLInputElement;
-                                  updateOrderPrice(order.id, Number(target.value));
-                                }
-                              }}
-                            />
-                            <Button
-                              size="sm"
+                                  onKeyPress={(e) => {
+                                    if (e.key === 'Enter') {
+                                      const target = e.target as HTMLInputElement;
+                                      updateOrderPrice(order.id, Number(target.value));
+                                    }
+                                  }}
+                                />
+                                <Button
+                                  size="sm"
                                   className="w-full sm:w-auto"
-                              onClick={(e) => {
-                                const input = e.currentTarget.parentElement?.querySelector('input') as HTMLInputElement;
-                                if (input?.value) {
-                                  updateOrderPrice(order.id, Number(input.value));
-                                }
-                              }}
-                            >
-                              <DollarSign className="h-4 w-4 mr-1" />
-                              Set Price
-                            </Button>
-                      </div>
-                    )}
-                    
-                            {/* Status buttons */}
-                            <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 justify-end mt-3">
-                      <Button 
-                        size="sm" 
-                        variant={order.status === "pending" ? "default" : "outline"}
-                        onClick={() => updateOrderStatus(order.id, "pending")}
-                                className="flex-1 sm:flex-none"
-                      >
-                        Pending
-                      </Button>
-                      <Button 
-                        size="sm" 
-                        variant={order.status === "confirmed" ? "default" : "outline"}
-                        onClick={() => updateOrderStatus(order.id, "confirmed")}
-                                className="flex-1 sm:flex-none"
-                      >
-                        Confirm
-                      </Button>
-                      <Button 
-                        size="sm" 
-                        variant={order.status === "completed" ? "default" : "outline"}
-                        onClick={() => updateOrderStatus(order.id, "completed")}
-                                className="flex-1 sm:flex-none"
-                      >
-                        Complete
-                      </Button>
-                      <Button 
-                        size="sm" 
-                        variant={order.status === "cancelled" ? "destructive" : "outline"}
-                        onClick={() => updateOrderStatus(order.id, "cancelled")}
-                                className="flex-1 sm:flex-none"
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                            
-                            {/* Related image status */}
-                            {relatedImage && (
-                              <div className="mt-3 pt-3 border-t border-gray-100">
-                                <div className="flex justify-between items-center">
-                                  <p className="text-xs text-muted-foreground flex items-center">
-                                    <Image className="h-3 w-3 mr-1" />
-                                    Image Status: 
-                                    <Badge className={`ml-2 ${getStatusColor(relatedImage.status)} capitalize px-2 py-0 rounded-full text-xs`}>
-                                      {relatedImage.status}
-                                    </Badge>
-                                  </p>
-                                  
-                                  {/* Sync warning if statuses don't match */}
-                                  {((relatedImage.status === 'rejected' && order.status !== 'cancelled') ||
-                                    (relatedImage.status === 'approved' && order.status === 'cancelled')) && (
-                                    <Badge variant="destructive" className="text-xs flex items-center gap-1">
-                                      <AlertCircle className="h-3 w-3" />
-                                      Status mismatch!
-                                    </Badge>
-            )}
-          </div>
-                </div>
+                                  onClick={(e) => {
+                                    const input = e.currentTarget.parentElement?.querySelector('input') as HTMLInputElement;
+                                    if (input?.value) {
+                                      updateOrderPrice(order.id, Number(input.value));
+                                    }
+                                  }}
+                                >
+                                  <DollarSign className="h-4 w-4 mr-1" />
+                                  Set Price
+                                </Button>
+                              </div>
                             )}
-                </div>
-              </div>
+                    
+                            {/* Action buttons */}
+                            <div className="flex flex-wrap gap-2 justify-between">
+                              <OrderDetailsDialog order={order} />
+                              
+                              <div className="flex flex-wrap gap-2">
+                                <Button 
+                                  size="sm" 
+                                  variant={order.status === "pending" ? "default" : "outline"}
+                                  onClick={() => updateOrderStatus(order.id, "pending")}
+                                >
+                                  Pending
+                                </Button>
+                                <Button 
+                                  size="sm" 
+                                  variant={order.status === "confirmed" ? "default" : "outline"}
+                                  onClick={() => updateOrderStatus(order.id, "confirmed")}
+                                >
+                                  Confirm
+                                </Button>
+                                <Button 
+                                  size="sm" 
+                                  variant={order.status === "completed" ? "default" : "outline"}
+                                  onClick={() => updateOrderStatus(order.id, "completed")}
+                                >
+                                  Complete
+                                </Button>
+                                <Button 
+                                  size="sm" 
+                                  variant={order.status === "cancelled" ? "destructive" : "outline"}
+                                  onClick={() => updateOrderStatus(order.id, "cancelled")}
+                                >
+                                  Cancel
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
                       </CardContent>
                     </Card>
                   );
                 })
               )}
-              </div>
+            </div>
           </TabsContent>
 
           <TabsContent value="products" className="space-y-4 mt-4 sm:mt-6">
