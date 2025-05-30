@@ -481,9 +481,9 @@ export function AdminPanel() {
 
   const updateOrderStatus = async (orderId: string, status: 'pending' | 'confirmed' | 'completed' | 'cancelled' | 'waiting_admin_confirmation') => {
     try {
-      console.log(`Starting status update for order ${orderId} to ${status}`);
+      console.log(`Updating order ${orderId} status to ${status}`);
       
-      // First, get current order data
+      // Get current order data
       const { data: currentOrder, error: fetchError } = await supabase
         .from('orders')
         .select('final_price, status, customer_name, customer_email')
@@ -508,10 +508,10 @@ export function AdminPanel() {
       }
 
       // Prepare update data
-      const updates: {
+      const updateData: {
         status: typeof status;
         final_price?: number | null;
-        updated_at?: string;
+        updated_at: string;
       } = { 
         status,
         updated_at: new Date().toISOString()
@@ -519,15 +519,15 @@ export function AdminPanel() {
       
       // Clear final price if cancelling
       if (status === 'cancelled') {
-        updates.final_price = null;
+        updateData.final_price = null;
       }
 
-      console.log('Updating with data:', updates);
+      console.log('Updating with data:', updateData);
 
-      // Update the order
+      // Update the order directly with supabase client
       const { error: updateError } = await supabase
         .from('orders')
-        .update(updates)
+        .update(updateData)
         .eq('id', orderId);
 
       if (updateError) {
@@ -537,8 +537,31 @@ export function AdminPanel() {
 
       console.log('Database update successful');
 
-      // Reload data to ensure UI sync
-      await loadData();
+      // Update local state immediately
+      setOrders(prev => 
+        prev.map(order => 
+          order.id === orderId 
+            ? { ...order, status, updated_at: updateData.updated_at, ...(updateData.final_price !== undefined ? { final_price: updateData.final_price } : {}) }
+            : order
+        )
+      );
+
+      // Create notification
+      if (currentOrder?.customer_name) {
+        const { error: notificationError } = await supabase
+          .from('notifications')
+          .insert({
+            user_id: currentOrder.user_id || null,
+            type: "order_status",
+            title: "Order Status Updated",
+            message: `Your order status has been updated to ${status.replace('_', ' ')}`,
+            metadata: { order_id: orderId, status }
+          });
+
+        if (notificationError) {
+          console.error('Error creating notification:', notificationError);
+        }
+      }
 
       toast({
         title: "Status Updated",
@@ -618,7 +641,7 @@ export function AdminPanel() {
     return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
   };
 
-  // Status dropdown component
+  // Status dropdown component with improved status handling
   const OrderStatusDropdown = ({ order }: { order: OrderWithItems }) => (
     <Select value={order.status} onValueChange={(value) => updateOrderStatus(order.id, value as any)}>
       <SelectTrigger className="w-40">
@@ -631,6 +654,9 @@ export function AdminPanel() {
       <SelectContent>
         <SelectItem value="pending">
           <Badge className="bg-blue-100 text-blue-800 border-blue-200 px-3 py-1 rounded-full text-xs">Pending</Badge>
+        </SelectItem>
+        <SelectItem value="waiting_admin_confirmation">
+          <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 px-3 py-1 rounded-full text-xs">Waiting Confirmation</Badge>
         </SelectItem>
         <SelectItem value="confirmed">
           <Badge className="bg-green-100 text-green-800 border-green-200 px-3 py-1 rounded-full text-xs">Confirmed</Badge>
