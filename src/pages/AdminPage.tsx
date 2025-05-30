@@ -1,6 +1,6 @@
 
 import { useAuth } from '@/hooks/useAuth';
-import { AdminPanel } from '@/components/AdminPanel';
+import AdminPanel from '@/components/AdminPanel';
 import { Navigate } from 'react-router-dom';
 
 const AdminPage = () => {

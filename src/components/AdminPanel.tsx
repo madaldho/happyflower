@@ -195,9 +195,26 @@ const AdminPanel = () => {
 
   const addProduct = async () => {
     try {
+      // Ensure required fields are present
+      if (!newProduct.name || !newProduct.price) {
+        toast({
+          title: "Error",
+          description: "Product name and price are required",
+          variant: "destructive",
+        });
+        return;
+      }
+
       const { error } = await supabase
         .from('products')
-        .insert([newProduct]);
+        .insert({
+          name: newProduct.name,
+          price: newProduct.price,
+          description: newProduct.description || '',
+          category: newProduct.category || 'flowers',
+          image_url: newProduct.image_url || '',
+          is_active: newProduct.is_active ?? true
+        });
 
       if (error) throw error;
 
