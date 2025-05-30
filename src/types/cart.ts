@@ -7,4 +7,5 @@ export interface CartItem {
   image_url?: string;
   image?: string;
   description?: string;
+  category?: string;
 }
