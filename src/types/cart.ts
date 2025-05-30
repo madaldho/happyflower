@@ -4,15 +4,9 @@ export interface CartItem {
   name: string;
   price: number;
   quantity: number;
-  image_url?: string;
-  description: string;
-  image?: string; // Keep for backward compatibility
+  image: string;
+  image_url: string;
+  description?: string;
   category?: string;
   rating?: number;
-}
-
-export interface CartState {
-  items: CartItem[];
-  total: number;
-  isOpen: boolean;
 }

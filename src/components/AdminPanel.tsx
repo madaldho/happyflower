@@ -17,37 +17,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-
-interface OrderItem {
-  id: string;
-  product_id: string;
-  product_name: string;
-  quantity: number;
-  price: number;
-  subtotal: number;
-  product?: {
-    name: string;
-    image_url: string;
-    description: string;
-  };
-}
-
-interface OrderWithItems extends Order {
-  order_items?: OrderItem[];
-}
 
 export function AdminPanel() {
   const [products, setProducts] = useState<Product[]>([]);
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
   const [trainingData, setTrainingData] = useState<AITrainingData[]>([]);
-  const [orders, setOrders] = useState<OrderWithItems[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('orders');
@@ -111,7 +86,7 @@ export function AdminPanel() {
       if (trainingError) throw trainingError;
       setTrainingData(trainingDataRes || []);
 
-      // Load orders with detailed information
+      // Load orders with related generated images
       const { data: ordersData, error: ordersError } = await supabase
         .from('orders')
         .select(`
@@ -119,43 +94,26 @@ export function AdminPanel() {
           generated_images:generated_image_id (
             id,
             image_url,
-            status,
-            prompt
-          ),
-          order_items (
-            id,
-            product_id,
-            product_name,
-            quantity,
-            price,
-            subtotal,
-            products (
-              name,
-              image_url,
-              description,
-              category
-            )
+            status
           )
         `)
         .order('created_at', { ascending: false });
 
       if (ordersError) throw ordersError;
       
-      // Process orders data with proper typing
+      // Fix the orders type casting with proper type handling
       setOrders((ordersData || []).map(order => {
         return {
           ...order,
           status: order.status as 'pending' | 'confirmed' | 'completed' | 'cancelled' | 'waiting_admin_confirmation',
+          // Treat generated_images as partial with type casting
           generated_images: order.generated_images ? {
             ...order.generated_images,
             status: order.generated_images.status as 'pending' | 'approved' | 'rejected'
-          } : null,
-          order_items: order.order_items || []
+          } : null
         };
       }));
 
-      console.log('Data loaded successfully:', ordersData?.length, 'orders');
-      
       toast({
         title: "Data loaded",
         description: "Admin data refreshed successfully",
@@ -445,28 +403,22 @@ export function AdminPanel() {
     }
 
     try {
-      console.log(`Updating order ${orderId} price to ${newPrice}`);
-      
+      // Direct update via Supabase RLS instead of Edge Function
       const { error } = await supabase
         .from('orders')
         .update({
-          final_price: newPrice,
           total_amount: newPrice,
-          status: 'waiting_admin_confirmation',
-          updated_at: new Date().toISOString()
+          final_price: newPrice,
+          status: 'waiting_admin_confirmation'
         })
         .eq('id', orderId);
 
-      if (error) {
-        console.error('Database error:', error);
-        throw new Error(`Database error: ${error.message}`);
-      }
+      if (error) throw new Error(error.message);
 
-      console.log('Price update successful, reloading data...');
       await loadData();
 
       toast({
-        title: "Price Updated",
+        title: "Price updated",
         description: `Order price has been updated to $${newPrice}`,
       });
     } catch (error) {
@@ -481,97 +433,47 @@ export function AdminPanel() {
 
   const updateOrderStatus = async (orderId: string, status: 'pending' | 'confirmed' | 'completed' | 'cancelled' | 'waiting_admin_confirmation') => {
     try {
-      console.log(`Updating order ${orderId} status to ${status}`);
-      
-      // Get current order data
-      const { data: currentOrder, error: fetchError } = await supabase
-        .from('orders')
-        .select('final_price, status, customer_name, customer_email')
-        .eq('id', orderId)
-        .single();
-
-      if (fetchError) {
-        console.error('Error fetching current order:', fetchError);
-        throw new Error(`Failed to fetch order: ${fetchError.message}`);
-      }
-
-      console.log('Current order data:', currentOrder);
-
-      // Validation for confirmed status
-      if (status === 'confirmed' && !currentOrder?.final_price) {
-        toast({
-          title: "Price Required",
-          description: "Please set a final price before confirming the order",
-          variant: "destructive"
-        });
-        return;
-      }
-
-      // Prepare update data
-      const updateData: {
-        status: typeof status;
-        final_price?: number | null;
-        updated_at: string;
-      } = { 
-        status,
-        updated_at: new Date().toISOString()
-      };
-      
-      // Clear final price if cancelling
-      if (status === 'cancelled') {
-        updateData.final_price = null;
-      }
-
-      console.log('Updating with data:', updateData);
-
-      // Update the order directly with supabase client
-      const { error: updateError } = await supabase
-        .from('orders')
-        .update(updateData)
-        .eq('id', orderId);
-
-      if (updateError) {
-        console.error('Database update error:', updateError);
-        throw new Error(`Database update failed: ${updateError.message}`);
-      }
-
-      console.log('Database update successful');
-
-      // Update local state immediately
-      setOrders(prev => 
-        prev.map(order => 
-          order.id === orderId 
-            ? { ...order, status, updated_at: updateData.updated_at, ...(updateData.final_price !== undefined ? { final_price: updateData.final_price } : {}) }
-            : order
-        )
-      );
-
-      // Create notification
-      if (currentOrder?.customer_name) {
-        const { error: notificationError } = await supabase
-          .from('notifications')
-          .insert({
-            user_id: currentOrder.user_id || null,
-            type: "order_status",
-            title: "Order Status Updated",
-            message: `Your order status has been updated to ${status.replace('_', ' ')}`,
-            metadata: { order_id: orderId, status }
+      // If changing to confirmed status, ensure there's a final price
+      if (status === 'confirmed') {
+        const order = orders.find(o => o.id === orderId);
+        if (!order?.final_price) {
+          toast({
+            title: "Price Required",
+            description: "Please set a final price before confirming the order",
+            variant: "destructive"
           });
-
-        if (notificationError) {
-          console.error('Error creating notification:', notificationError);
+          return;
         }
       }
 
-      toast({
-        title: "Status Updated",
-        description: `Order for ${currentOrder.customer_name} has been marked as ${status.replace('_', ' ')}`,
-      });
+      // Direct update via Supabase RLS instead of Edge Function
+      const updates: {
+        status: typeof status;
+        final_price?: number | null;
+      } = { status };
+      
+      // If cancelling, clear final price
+      if (status === 'cancelled') {
+        updates.final_price = null;
+      }
 
+      const { error } = await supabase
+        .from('orders')
+        .update(updates)
+        .eq('id', orderId);
+
+      if (error) throw new Error(error.message);
+
+      await loadData();
+
+      toast({
+        title: "Status updated",
+        description: `Order has been marked as ${status}`,
+      });
     } catch (error) {
       console.error('Error updating order status:', error);
       toast({
-        title: "Update Failed",
+        title: "Error",
         description: error.message || "Failed to update order status",
         variant: "destructive"
       });
@@ -624,14 +526,14 @@ export function AdminPanel() {
       case 'approved':
       case 'confirmed':
       case 'completed':
-        return 'bg-green-100 text-green-800 border-green-200';
+        return 'bg-green-100 text-green-800';
       case 'rejected':
       case 'cancelled':
-        return 'bg-red-100 text-red-800 border-red-200';
+        return 'bg-red-100 text-red-800';
       case 'waiting_admin_confirmation':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+        return 'bg-yellow-100 text-yellow-800';
       default:
-        return 'bg-blue-100 text-blue-800 border-blue-200';
+        return 'bg-blue-100 text-blue-800';
     }
   };
 
@@ -640,36 +542,6 @@ export function AdminPanel() {
     const date = new Date(dateString);
     return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
   };
-
-  // Status dropdown component with improved status handling
-  const OrderStatusDropdown = ({ order }: { order: OrderWithItems }) => (
-    <Select value={order.status} onValueChange={(value) => updateOrderStatus(order.id, value as any)}>
-      <SelectTrigger className="w-40">
-        <SelectValue>
-          <Badge className={`${getStatusColor(order.status)} capitalize px-3 py-1 rounded-full text-xs border`}>
-            {order.status.replace('_', ' ')}
-          </Badge>
-        </SelectValue>
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="pending">
-          <Badge className="bg-blue-100 text-blue-800 border-blue-200 px-3 py-1 rounded-full text-xs">Pending</Badge>
-        </SelectItem>
-        <SelectItem value="waiting_admin_confirmation">
-          <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 px-3 py-1 rounded-full text-xs">Waiting Confirmation</Badge>
-        </SelectItem>
-        <SelectItem value="confirmed">
-          <Badge className="bg-green-100 text-green-800 border-green-200 px-3 py-1 rounded-full text-xs">Confirmed</Badge>
-        </SelectItem>
-        <SelectItem value="completed">
-          <Badge className="bg-green-100 text-green-800 border-green-200 px-3 py-1 rounded-full text-xs">Completed</Badge>
-        </SelectItem>
-        <SelectItem value="cancelled">
-          <Badge className="bg-red-100 text-red-800 border-red-200 px-3 py-1 rounded-full text-xs">Cancelled</Badge>
-        </SelectItem>
-      </SelectContent>
-    </Select>
-  );
 
   // Add Product Form Component
   const AddProductForm = () => (
@@ -783,20 +655,20 @@ export function AdminPanel() {
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
           <h1 className="text-2xl sm:text-3xl font-bold">Admin Panel</h1>
           <Button onClick={loadData} variant="outline" disabled={isLoading} className="w-full sm:w-auto">
-            <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-            Refresh Data
-          </Button>
-        </div>
+          <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+          Refresh Data
+        </Button>
+      </div>
 
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search orders, products..."
-            className="pl-10"
-          />
-        </div>
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+        <Input
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          placeholder="Search orders, products..."
+          className="pl-10"
+        />
+      </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           {/* Mobile Dropdown */}
@@ -810,7 +682,7 @@ export function AdminPanel() {
                     {activeTab === 'images' && <Image className="h-4 w-4" />}
                     {activeTab === 'training' && (
                       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
-                        <path d="M12 2a4 4 0 0 1 4 4c0 1.5-.8 2.8-2 3.4V11h4.5a2.5 2.5 0 0 1 0 5H18v2.6c1.2.6 2 2 2 3.4a4 4 0 0 1-4 4a4 4 0 0 1-4-4c0-1.5.8-2.8 2-3.4V16H9.5a2.5 2.5 0 0 1 0-5H14V9.4C12.8 8.8 12 7.5 12 6a4 4 0 0 1 4-4z"></path>
+                        <path d="M12 2a4 4 0 0 1 4 4c0 1.5-.8 2.8-2 3.4V11h4.5a2.5 2.5 0 0 1 0 5H18v2.6c1.2.6 2 2 2 3.4a4 4 0 0 1-4 4 4 4 0 0 1-4-4c0-1.5.8-2.8 2-3.4V16H9.5a2.5 2.5 0 0 1 0-5H14V9.4C12.8 8.8 12 7.5 12 6a4 4 0 0 1 4-4z"></path>
                       </svg>
                     )}
                     {activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}
@@ -844,7 +716,7 @@ export function AdminPanel() {
           {/* Desktop Tabs */}
           <div className="hidden md:block">
             <ScrollArea className="w-full overflow-x-auto">
-              <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-4">
                 <TabsTrigger value="orders" className="flex items-center gap-2">
                   <Package className="h-4 w-4" />
                   <span>Orders</span>
@@ -859,32 +731,34 @@ export function AdminPanel() {
                 </TabsTrigger>
                 <TabsTrigger value="training" className="flex items-center gap-2">
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
-                    <path d="M12 2a4 4 0 0 1 4 4c0 1.5-.8 2.8-2 3.4V11h4.5a2.5 2.5 0 0 1 0 5H18v2.6c1.2.6 2 2 2 3.4a4 4 0 0 1-4 4a4 4 0 0 1-4-4c0-1.5.8-2.8 2-3.4V16H9.5a2.5 2.5 0 0 1 0-5H14V9.4C12.8 8.8 12 7.5 12 6a4 4 0 0 1 4-4z"></path>
+                    <path d="M12 2a4 4 0 0 1 4 4c0 1.5-.8 2.8-2 3.4V11h4.5a2.5 2.5 0 0 1 0 5H18v2.6c1.2.6 2 2 2 3.4a4 4 0 0 1-4 4 4 4 0 0 1-4-4c0-1.5.8-2.8 2-3.4V16H9.5a2.5 2.5 0 0 1 0-5H14V9.4C12.8 8.8 12 7.5 12 6a4 4 0 0 1 4-4z"></path>
                   </svg>
                   <span>Training</span>
                 </TabsTrigger>
-              </TabsList>
+        </TabsList>
             </ScrollArea>
           </div>
 
           <TabsContent value="orders" className="space-y-4 mt-4 sm:mt-6">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {isLoading ? (
+            {isLoading ? (
                 <div className="col-span-full flex justify-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-coral-500"></div>
-                </div>
-              ) : filteredOrders.length === 0 ? (
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-coral-500"></div>
+              </div>
+            ) : filteredOrders.length === 0 ? (
                 <div className="col-span-full text-center py-8 bg-gray-50 rounded-lg">
-                  <p className="text-gray-500">No orders found</p>
-                </div>
-              ) : (
+                <p className="text-gray-500">No orders found</p>
+              </div>
+            ) : (
                 filteredOrders.map((order) => {
+                  // Get related image if exists
                   const relatedImage = order.generated_images ? order.generated_images : null;
                   
                   return (
                     <Card key={order.id} className="overflow-hidden border-0 shadow-md hover:shadow-lg transition-shadow">
                       <CardContent className="p-0">
                         <div className="flex flex-col md:flex-row">
+                          {/* If there's a related image, show it */}
                           {relatedImage && relatedImage.image_url && (
                             <div className="w-full md:w-1/3 h-48 md:h-auto">
                               <img 
@@ -896,8 +770,8 @@ export function AdminPanel() {
                           )}
                           
                           <div className="p-3 sm:p-4 flex-1">
-                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-3 gap-2">
-                              <div className="flex-1">
+                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-2 gap-2">
+                      <div>
                                 <h3 className="font-semibold text-lg flex items-center gap-1">
                                   <Package className="h-4 w-4 text-gray-500" />
                                   Order #{order.id.slice(0, 8)}
@@ -906,86 +780,30 @@ export function AdminPanel() {
                                   <Mail className="h-3 w-3" />
                                   {order.customer_name} - {order.customer_email}
                                 </p>
-                                {order.customer_phone && (
-                                  <p className="text-xs text-muted-foreground mt-1">
-                                    📞 {order.customer_phone}
-                                  </p>
-                                )}
                                 <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
                                   <Clock className="h-3 w-3" />
                                   {formatDate(order.created_at)}
-                                </p>
-                              </div>
-                              <OrderStatusDropdown order={order} />
-                            </div>
+                        </p>
+                      </div>
+                              <Badge className={`${getStatusColor(order.status)} capitalize px-3 py-1 rounded-full text-xs`}>
+                                {order.status.replace('_', ' ')}
+                      </Badge>
+                    </div>
                             
                             <p className="text-sm mb-3 bg-gray-50 p-2 rounded-md flex items-start gap-1">
                               <MapPin className="h-3 w-3 mt-0.5 flex-shrink-0" />
                               <span>{order.delivery_address}</span>
                             </p>
-
-                            {/* Detailed Product Information */}
-                            {order.order_items && order.order_items.length > 0 && (
-                              <div className="mb-3">
-                                <h4 className="text-sm font-medium mb-2 flex items-center gap-1">
-                                  <ShoppingBag className="h-4 w-4" />
-                                  Ordered Products ({order.order_items.length}):
-                                </h4>
-                                <div className="space-y-2">
-                                  {order.order_items.map((item) => (
-                                    <div key={item.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-md border">
-                                      {item.product?.image_url && (
-                                        <img 
-                                          src={item.product.image_url} 
-                                          alt={item.product_name} 
-                                          className="w-12 h-12 object-cover rounded border"
-                                        />
-                                      )}
-                                      <div className="flex-1">
-                                        <p className="text-sm font-medium">{item.product_name}</p>
-                                        {item.product?.description && (
-                                          <p className="text-xs text-gray-600 line-clamp-1">{item.product.description}</p>
-                                        )}
-                                        <div className="flex items-center gap-2 mt-1">
-                                          <Badge variant="outline" className="text-xs">
-                                            Qty: {item.quantity}
-                                          </Badge>
-                                          <Badge variant="outline" className="text-xs">
-                                            ${item.price}
-                                          </Badge>
-                                          <Badge className="bg-green-100 text-green-800 text-xs">
-                                            Total: ${item.subtotal}
-                                          </Badge>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Generated Image Info */}
-                            {relatedImage && (
-                              <div className="mb-3 p-2 bg-blue-50 rounded-md">
-                                <h4 className="text-xs font-medium text-blue-800 mb-1">AI Generated Design:</h4>
-                                <p className="text-xs text-blue-700 line-clamp-2">{relatedImage.prompt}</p>
-                                <Badge className={`mt-1 ${getStatusColor(relatedImage.status)} text-xs`}>
-                                  Image: {relatedImage.status}
-                                </Badge>
-                              </div>
-                            )}
                     
                             {/* Price information */}
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
-                              {order.estimated_price && (
-                                <div className="bg-yellow-50 p-2 sm:p-3 rounded-lg border border-yellow-200">
-                                  <p className="text-sm font-medium text-yellow-800">
-                                    Estimated: ${order.estimated_price.toLocaleString()}
-                                  </p>
+                    {order.estimated_price && (
+                                <div className="bg-yellow-50 p-2 sm:p-3 rounded-lg">
+                                  <p className="text-sm font-medium">Estimated: ${order.estimated_price.toLocaleString()}</p>
                                 </div>
                               )}
                               
-                              <div className="bg-green-50 p-2 sm:p-3 rounded-lg border border-green-200">
+                              <div className="bg-green-50 p-2 sm:p-3 rounded-lg">
                                 <p className="text-sm font-bold text-green-800">
                                   {order.final_price ? `Final: $${order.final_price.toLocaleString()}` : 
                                   `Total: $${order.total_amount.toLocaleString()}`}
@@ -993,51 +811,103 @@ export function AdminPanel() {
                               </div>
                             </div>
                             
-                            {/* Admin price setting */}
-                            {order.status === 'waiting_admin_confirmation' && (
-                              <div className="flex flex-col sm:flex-row gap-2 mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                                <Input
-                                  type="number"
-                                  placeholder="Set final price"
+                            {/* Admin confirmation section */}
+                        {order.status === 'waiting_admin_confirmation' && (
+                              <div className="flex flex-col sm:flex-row gap-2 mb-4 p-2 sm:p-3 bg-blue-50 rounded-lg">
+                            <Input
+                              type="number"
+                              placeholder="Set final price"
                                   className="w-full sm:w-40"
-                                  onKeyPress={(e) => {
-                                    if (e.key === 'Enter') {
-                                      const target = e.target as HTMLInputElement;
-                                      updateOrderPrice(order.id, Number(target.value));
-                                    }
-                                  }}
-                                />
-                                <Button
-                                  size="sm"
+                              onKeyPress={(e) => {
+                                if (e.key === 'Enter') {
+                                  const target = e.target as HTMLInputElement;
+                                  updateOrderPrice(order.id, Number(target.value));
+                                }
+                              }}
+                            />
+                            <Button
+                              size="sm"
                                   className="w-full sm:w-auto"
-                                  onClick={(e) => {
-                                    const input = e.currentTarget.parentElement?.querySelector('input') as HTMLInputElement;
-                                    if (input?.value) {
-                                      updateOrderPrice(order.id, Number(input.value));
-                                    }
-                                  }}
-                                >
-                                  <DollarSign className="h-4 w-4 mr-1" />
-                                  Set Price
-                                </Button>
-                              </div>
+                              onClick={(e) => {
+                                const input = e.currentTarget.parentElement?.querySelector('input') as HTMLInputElement;
+                                if (input?.value) {
+                                  updateOrderPrice(order.id, Number(input.value));
+                                }
+                              }}
+                            >
+                              <DollarSign className="h-4 w-4 mr-1" />
+                              Set Price
+                            </Button>
+                      </div>
+                    )}
+                    
+                            {/* Status buttons */}
+                            <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 justify-end mt-3">
+                      <Button 
+                        size="sm" 
+                        variant={order.status === "pending" ? "default" : "outline"}
+                        onClick={() => updateOrderStatus(order.id, "pending")}
+                                className="flex-1 sm:flex-none"
+                      >
+                        Pending
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant={order.status === "confirmed" ? "default" : "outline"}
+                        onClick={() => updateOrderStatus(order.id, "confirmed")}
+                                className="flex-1 sm:flex-none"
+                      >
+                        Confirm
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant={order.status === "completed" ? "default" : "outline"}
+                        onClick={() => updateOrderStatus(order.id, "completed")}
+                                className="flex-1 sm:flex-none"
+                      >
+                        Complete
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant={order.status === "cancelled" ? "destructive" : "outline"}
+                        onClick={() => updateOrderStatus(order.id, "cancelled")}
+                                className="flex-1 sm:flex-none"
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                            
+                            {/* Related image status */}
+                            {relatedImage && (
+                              <div className="mt-3 pt-3 border-t border-gray-100">
+                                <div className="flex justify-between items-center">
+                                  <p className="text-xs text-muted-foreground flex items-center">
+                                    <Image className="h-3 w-3 mr-1" />
+                                    Image Status: 
+                                    <Badge className={`ml-2 ${getStatusColor(relatedImage.status)} capitalize px-2 py-0 rounded-full text-xs`}>
+                                      {relatedImage.status}
+                                    </Badge>
+                                  </p>
+                                  
+                                  {/* Sync warning if statuses don't match */}
+                                  {((relatedImage.status === 'rejected' && order.status !== 'cancelled') ||
+                                    (relatedImage.status === 'approved' && order.status === 'cancelled')) && (
+                                    <Badge variant="destructive" className="text-xs flex items-center gap-1">
+                                      <AlertCircle className="h-3 w-3" />
+                                      Status mismatch!
+                                    </Badge>
+            )}
+          </div>
+                </div>
                             )}
-
-                            {/* Additional Order Details */}
-                            {order.notes && (
-                              <div className="mt-3 p-2 bg-amber-50 rounded-md border border-amber-200">
-                                <p className="text-xs font-medium text-amber-800">Customer Notes:</p>
-                                <p className="text-xs text-amber-700">{order.notes}</p>
-                              </div>
-                            )}
-                          </div>
-                        </div>
+                </div>
+              </div>
                       </CardContent>
                     </Card>
                   );
                 })
               )}
-            </div>
+              </div>
           </TabsContent>
 
           <TabsContent value="products" className="space-y-4 mt-4 sm:mt-6">
@@ -1049,54 +919,54 @@ export function AdminPanel() {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {isLoading ? (
+            {isLoading ? (
                 <div className="col-span-full flex justify-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-coral-500"></div>
-                </div>
-              ) : filteredProducts.length === 0 ? (
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-coral-500"></div>
+              </div>
+            ) : filteredProducts.length === 0 ? (
                 <div className="col-span-full text-center py-8 bg-gray-50 rounded-lg">
-                  <p className="text-gray-500">No products found</p>
-                </div>
-              ) : (
-                filteredProducts.map((product) => (
+                <p className="text-gray-500">No products found</p>
+              </div>
+            ) : (
+              filteredProducts.map((product) => (
                   <Card key={product.id} className="overflow-hidden border-0 shadow-md hover:shadow-lg transition-shadow">
                     <CardContent className="p-0">
                       <div className="relative">
-                        <img
-                          src={product.image_url}
-                          alt={product.name}
+                    <img
+                      src={product.image_url}
+                      alt={product.name}
                           className="w-full h-48 object-cover"
-                        />
+                    />
                         <Badge className="absolute top-2 right-2 bg-white/80 text-black px-2 py-1 rounded-full">
                           ${product.price}
                         </Badge>
                       </div>
                     
                       <div className="p-3 sm:p-4">
-                        {editingProduct && editingProduct.id === product.id ? (
-                          <div className="space-y-3">
-                            <Input
-                              value={editingProduct.name}
-                              onChange={(e) => setEditingProduct({...editingProduct, name: e.target.value})}
-                              placeholder="Product name"
-                            />
-                            <Input
-                              type="number"
-                              value={editingProduct.price}
-                              onChange={(e) => setEditingProduct({...editingProduct, price: Number(e.target.value)})}
-                              placeholder="Price"
-                            />
-                            <Textarea
-                              value={editingProduct.description || ''}
-                              onChange={(e) => setEditingProduct({...editingProduct, description: e.target.value})}
-                              placeholder="Description"
-                            />
+                    {editingProduct && editingProduct.id === product.id ? (
+                      <div className="space-y-3">
+                        <Input
+                          value={editingProduct.name}
+                          onChange={(e) => setEditingProduct({...editingProduct, name: e.target.value})}
+                          placeholder="Product name"
+                        />
+                        <Input
+                          type="number"
+                          value={editingProduct.price}
+                          onChange={(e) => setEditingProduct({...editingProduct, price: Number(e.target.value)})}
+                          placeholder="Price"
+                        />
+                        <Textarea
+                          value={editingProduct.description || ''}
+                          onChange={(e) => setEditingProduct({...editingProduct, description: e.target.value})}
+                          placeholder="Description"
+                        />
                             
                             <div className="space-y-2">
                               <Label>Product Image</Label>
                               <div className="flex items-center gap-2">
                                 <div className="border rounded-md p-1 flex-1">
-                                  <Input
+                        <Input
                                     type="file"
                                     accept="image/*"
                                     onChange={(e) => handleProductImageChange(e, true)}
@@ -1107,8 +977,8 @@ export function AdminPanel() {
                                 <div className="flex-1">
                                   <Input
                                     placeholder="Image URL"
-                                    value={editingProduct.image_url || ''}
-                                    onChange={(e) => setEditingProduct({...editingProduct, image_url: e.target.value})}
+                          value={editingProduct.image_url || ''}
+                          onChange={(e) => setEditingProduct({...editingProduct, image_url: e.target.value})}
                                     className="text-xs"
                                   />
                                 </div>
@@ -1120,87 +990,87 @@ export function AdminPanel() {
                                     src={editingProductPreview} 
                                     alt="Product preview" 
                                     className="w-full h-full object-contain"
-                                  />
+                        />
                                 </div>
                               )}
                             </div>
                             
-                            <div className="flex gap-2 mt-4">
-                              <Button 
-                                size="sm" 
-                                onClick={saveEditedProduct}
+                        <div className="flex gap-2 mt-4">
+                          <Button 
+                            size="sm" 
+                            onClick={saveEditedProduct}
                                 className="flex-1"
-                              >
+                          >
                                 <Check className="h-4 w-4 mr-2" /> Save
-                              </Button>
-                              <Button 
-                                size="sm" 
-                                variant="destructive"
-                                onClick={cancelEditingProduct}
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="destructive"
+                            onClick={cancelEditingProduct}
                                 className="flex-1"
-                              >
+                          >
                                 <X className="h-4 w-4 mr-2" /> Cancel
-                              </Button>
-                            </div>
-                          </div>
-                        ) : (
-                          <>
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
                             <h3 className="font-semibold text-lg">{product.name}</h3>
                             <p className="text-coral-600 font-bold text-xl">${product.price}</p>
                             <p className="text-sm text-muted-foreground mt-2 line-clamp-2">{product.description}</p>
                             <div className="grid grid-cols-2 gap-2 mt-4">
-                              <Button 
-                                size="sm" 
-                                variant="outline"
-                                onClick={() => startEditingProduct(product)}
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={() => startEditingProduct(product)}
                                 className="flex-1"
-                              >
+                          >
                                 <Edit className="h-4 w-4 mr-2" /> Edit
-                              </Button>
-                              <Button 
-                                size="sm" 
-                                variant="destructive"
-                                onClick={() => deleteProduct(product.id)}
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="destructive"
+                            onClick={() => deleteProduct(product.id)}
                                 className="flex-1"
-                              >
+                          >
                                 <Trash2 className="h-4 w-4 mr-2" /> Delete
-                              </Button>
-                            </div>
-                          </>
-                        )}
+                          </Button>
+                        </div>
+                      </>
+                    )}
                       </div>
-                    </CardContent>
-                  </Card>
-                ))
-              )}
-            </div>
-          </TabsContent>
+                  </CardContent>
+                </Card>
+              ))
+            )}
+          </div>
+        </TabsContent>
 
           <TabsContent value="images" className="space-y-4 mt-4 sm:mt-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {isLoading ? (
+            {isLoading ? (
                 <div className="col-span-full flex justify-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-coral-500"></div>
-                </div>
-              ) : generatedImages.length === 0 ? (
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-coral-500"></div>
+              </div>
+            ) : generatedImages.length === 0 ? (
                 <div className="col-span-full text-center py-8 bg-gray-50 rounded-lg">
-                  <p className="text-gray-500">No generated images found</p>
-                </div>
-              ) : (
-                generatedImages.map((image) => (
+                <p className="text-gray-500">No generated images found</p>
+              </div>
+            ) : (
+              generatedImages.map((image) => (
                   <Card key={image.id} className="overflow-hidden border-0 shadow-md hover:shadow-lg transition-shadow">
                     <CardContent className="p-0">
                       <div className="relative">
-                        <img
-                          src={image.image_url}
-                          alt={image.prompt}
+                    <img
+                      src={image.image_url}
+                      alt={image.prompt}
                           className="w-full h-60 object-cover"
-                        />
-                        <Badge 
+                    />
+                      <Badge 
                           className={`absolute top-3 right-3 ${getStatusColor(image.status)} capitalize px-3 py-1 rounded-full`}
-                        >
-                          {image.status}
-                        </Badge>
+                      >
+                        {image.status}
+                      </Badge>
                       </div>
                       
                       <div className="p-3 sm:p-4">
@@ -1210,94 +1080,94 @@ export function AdminPanel() {
                           {formatDate(image.created_at)}
                         </p>
                       
-                        {image.status === 'pending' && (
+                      {image.status === 'pending' && (
                           <div className="grid grid-cols-2 gap-2">
-                            <Button 
-                              size="sm" 
-                              onClick={() => updateImageStatus(image.id, 'approved')}
+                          <Button 
+                            size="sm" 
+                            onClick={() => updateImageStatus(image.id, 'approved')}
                               className="flex-1"
-                            >
+                          >
                               <Check className="h-4 w-4 mr-2" /> Approve
-                            </Button>
-                            <Button 
-                              size="sm" 
-                              variant="destructive"
-                              onClick={() => updateImageStatus(image.id, 'rejected')}
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="destructive"
+                            onClick={() => updateImageStatus(image.id, 'rejected')}
                               className="flex-1"
-                            >
+                          >
                               <X className="h-4 w-4 mr-2" /> Reject
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))
-              )}
-            </div>
-          </TabsContent>
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))
+            )}
+          </div>
+        </TabsContent>
 
           <TabsContent value="training" className="space-y-4 mt-4 sm:mt-6">
             <Card className="border-0 shadow-md">
               <CardHeader className="pb-2">
                 <CardTitle className="text-xl">Add Training Data</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <Label htmlFor="question">Question</Label>
-                  <Input
-                    id="question"
-                    value={newTraining.question}
-                    onChange={(e) => setNewTraining(prev => ({ ...prev, question: e.target.value }))}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="answer">Answer</Label>
-                  <Textarea
-                    id="answer"
-                    value={newTraining.answer}
-                    onChange={(e) => setNewTraining(prev => ({ ...prev, answer: e.target.value }))}
-                  />
-                </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label htmlFor="question">Question</Label>
+                <Input
+                  id="question"
+                  value={newTraining.question}
+                  onChange={(e) => setNewTraining(prev => ({ ...prev, question: e.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="answer">Answer</Label>
+                <Textarea
+                  id="answer"
+                  value={newTraining.answer}
+                  onChange={(e) => setNewTraining(prev => ({ ...prev, answer: e.target.value }))}
+                />
+              </div>
                 <Button onClick={addTrainingData} className="w-full sm:w-auto">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Training Data
-                </Button>
-              </CardContent>
-            </Card>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Training Data
+              </Button>
+            </CardContent>
+          </Card>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {isLoading ? (
+            {isLoading ? (
                 <div className="col-span-full flex justify-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-coral-500"></div>
-                </div>
-              ) : trainingData.length === 0 ? (
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-coral-500"></div>
+              </div>
+            ) : trainingData.length === 0 ? (
                 <div className="col-span-full text-center py-8 bg-gray-50 rounded-lg">
-                  <p className="text-gray-500">No training data found</p>
-                </div>
-              ) : (
-                trainingData.map((data) => (
+                <p className="text-gray-500">No training data found</p>
+              </div>
+            ) : (
+              trainingData.map((data) => (
                   <Card key={data.id} className="border-0 shadow-md hover:shadow-lg transition-shadow">
                     <CardContent className="p-3 sm:p-4">
                       <div className="flex justify-between items-start gap-2">
                         <h3 className="font-semibold mb-2 flex-1">Q: {data.question}</h3>
-                        <Button 
-                          size="sm" 
-                          variant="destructive"
-                          onClick={() => deleteTrainingData(data.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
+                      <Button 
+                        size="sm" 
+                        variant="destructive"
+                        onClick={() => deleteTrainingData(data.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                       <p className="text-muted-foreground text-sm bg-gray-50 p-3 rounded-md">A: {data.answer}</p>
                       <Badge variant="outline" className="mt-3">{data.category}</Badge>
-                    </CardContent>
-                  </Card>
-                ))
-              )}
-            </div>
-          </TabsContent>
-        </Tabs>
+                  </CardContent>
+                </Card>
+              ))
+            )}
+          </div>
+        </TabsContent>
+      </Tabs>
       </div>
     </div>
   );
