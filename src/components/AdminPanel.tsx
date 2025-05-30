@@ -18,11 +18,29 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+interface OrderItem {
+  id: string;
+  product_id: string;
+  product_name: string;
+  quantity: number;
+  price: number;
+  subtotal: number;
+  product?: {
+    name: string;
+    image_url: string;
+    description: string;
+  };
+}
+
+interface OrderWithItems extends Order {
+  order_items?: OrderItem[];
+}
+
 export function AdminPanel() {
   const [products, setProducts] = useState<Product[]>([]);
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
   const [trainingData, setTrainingData] = useState<AITrainingData[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [orders, setOrders] = useState<OrderWithItems[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('orders');
@@ -86,7 +104,7 @@ export function AdminPanel() {
       if (trainingError) throw trainingError;
       setTrainingData(trainingDataRes || []);
 
-      // Load orders with related generated images
+      // Load orders with order items and product details
       const { data: ordersData, error: ordersError } = await supabase
         .from('orders')
         .select(`
@@ -95,22 +113,35 @@ export function AdminPanel() {
             id,
             image_url,
             status
+          ),
+          order_items (
+            id,
+            product_id,
+            product_name,
+            quantity,
+            price,
+            subtotal,
+            products (
+              name,
+              image_url,
+              description
+            )
           )
         `)
         .order('created_at', { ascending: false });
 
       if (ordersError) throw ordersError;
       
-      // Fix the orders type casting with proper type handling
+      // Process orders data with proper typing
       setOrders((ordersData || []).map(order => {
         return {
           ...order,
           status: order.status as 'pending' | 'confirmed' | 'completed' | 'cancelled' | 'waiting_admin_confirmation',
-          // Treat generated_images as partial with type casting
           generated_images: order.generated_images ? {
             ...order.generated_images,
             status: order.generated_images.status as 'pending' | 'approved' | 'rejected'
-          } : null
+          } : null,
+          order_items: order.order_items || []
         };
       }));
 
@@ -415,7 +446,7 @@ export function AdminPanel() {
 
       if (error) throw new Error(error.message);
 
-      await loadData();
+      await loadData(); // Reload to sync with database
 
       toast({
         title: "Price updated",
@@ -433,6 +464,8 @@ export function AdminPanel() {
 
   const updateOrderStatus = async (orderId: string, status: 'pending' | 'confirmed' | 'completed' | 'cancelled' | 'waiting_admin_confirmation') => {
     try {
+      console.log(`Updating order ${orderId} status to ${status}`);
+      
       // If changing to confirmed status, ensure there's a final price
       if (status === 'confirmed') {
         const order = orders.find(o => o.id === orderId);
@@ -446,7 +479,6 @@ export function AdminPanel() {
         }
       }
 
-      // Direct update via Supabase RLS instead of Edge Function
       const updates: {
         status: typeof status;
         final_price?: number | null;
@@ -462,9 +494,13 @@ export function AdminPanel() {
         .update(updates)
         .eq('id', orderId);
 
-      if (error) throw new Error(error.message);
+      if (error) {
+        console.error('Database error:', error);
+        throw new Error(error.message);
+      }
 
-      await loadData();
+      console.log('Database update successful, reloading data...');
+      await loadData(); // Reload to ensure sync with database
 
       toast({
         title: "Status updated",
@@ -655,20 +691,20 @@ export function AdminPanel() {
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
           <h1 className="text-2xl sm:text-3xl font-bold">Admin Panel</h1>
           <Button onClick={loadData} variant="outline" disabled={isLoading} className="w-full sm:w-auto">
-          <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-          Refresh Data
-        </Button>
-      </div>
+            <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+            Refresh Data
+          </Button>
+        </div>
 
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-        <Input
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          placeholder="Search orders, products..."
-          className="pl-10"
-        />
-      </div>
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Input
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Search orders, products..."
+            className="pl-10"
+          />
+        </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           {/* Mobile Dropdown */}
@@ -716,7 +752,7 @@ export function AdminPanel() {
           {/* Desktop Tabs */}
           <div className="hidden md:block">
             <ScrollArea className="w-full overflow-x-auto">
-        <TabsList className="grid w-full grid-cols-4">
+              <TabsList className="grid w-full grid-cols-4">
                 <TabsTrigger value="orders" className="flex items-center gap-2">
                   <Package className="h-4 w-4" />
                   <span>Orders</span>
@@ -731,34 +767,32 @@ export function AdminPanel() {
                 </TabsTrigger>
                 <TabsTrigger value="training" className="flex items-center gap-2">
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
-                    <path d="M12 2a4 4 0 0 1 4 4c0 1.5-.8 2.8-2 3.4V11h4.5a2.5 2.5 0 0 1 0 5H18v2.6c1.2.6 2 2 2 3.4a4 4 0 0 1-4 4 4 4 0 0 1-4-4c0-1.5.8-2.8 2-3.4V16H9.5a2.5 2.5 0 0 1 0-5H14V9.4C12.8 8.8 12 7.5 12 6a4 4 0 0 1 4-4z"></path>
+                    <path d="M12 2a4 4 0 0 1 4 4c0 1.5-.8 2.8-2 3.4V11h4.5a2.5 2.5 0 0 1 0 5H18v2.6c1.2.6 2 2 2 3.4a4 4 0 0 1-4 4a4 4 0 0 1-4-4c0-1.5.8-2.8 2-3.4V16H9.5a2.5 2.5 0 0 1 0-5H14V9.4C12.8 8.8 12 7.5 12 6a4 4 0 0 1 4-4z"></path>
                   </svg>
                   <span>Training</span>
                 </TabsTrigger>
-        </TabsList>
+              </TabsList>
             </ScrollArea>
           </div>
 
           <TabsContent value="orders" className="space-y-4 mt-4 sm:mt-6">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {isLoading ? (
+              {isLoading ? (
                 <div className="col-span-full flex justify-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-coral-500"></div>
-              </div>
-            ) : filteredOrders.length === 0 ? (
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-coral-500"></div>
+                </div>
+              ) : filteredOrders.length === 0 ? (
                 <div className="col-span-full text-center py-8 bg-gray-50 rounded-lg">
-                <p className="text-gray-500">No orders found</p>
-              </div>
-            ) : (
+                  <p className="text-gray-500">No orders found</p>
+                </div>
+              ) : (
                 filteredOrders.map((order) => {
-                  // Get related image if exists
                   const relatedImage = order.generated_images ? order.generated_images : null;
                   
                   return (
                     <Card key={order.id} className="overflow-hidden border-0 shadow-md hover:shadow-lg transition-shadow">
                       <CardContent className="p-0">
                         <div className="flex flex-col md:flex-row">
-                          {/* If there's a related image, show it */}
                           {relatedImage && relatedImage.image_url && (
                             <div className="w-full md:w-1/3 h-48 md:h-auto">
                               <img 
@@ -771,7 +805,7 @@ export function AdminPanel() {
                           
                           <div className="p-3 sm:p-4 flex-1">
                             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-2 gap-2">
-                      <div>
+                              <div>
                                 <h3 className="font-semibold text-lg flex items-center gap-1">
                                   <Package className="h-4 w-4 text-gray-500" />
                                   Order #{order.id.slice(0, 8)}
@@ -783,21 +817,45 @@ export function AdminPanel() {
                                 <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
                                   <Clock className="h-3 w-3" />
                                   {formatDate(order.created_at)}
-                        </p>
-                      </div>
+                                </p>
+                              </div>
                               <Badge className={`${getStatusColor(order.status)} capitalize px-3 py-1 rounded-full text-xs`}>
                                 {order.status.replace('_', ' ')}
-                      </Badge>
-                    </div>
+                              </Badge>
+                            </div>
                             
                             <p className="text-sm mb-3 bg-gray-50 p-2 rounded-md flex items-start gap-1">
                               <MapPin className="h-3 w-3 mt-0.5 flex-shrink-0" />
                               <span>{order.delivery_address}</span>
                             </p>
+
+                            {/* Product Details */}
+                            {order.order_items && order.order_items.length > 0 && (
+                              <div className="mb-3">
+                                <h4 className="text-sm font-medium mb-2">Ordered Products:</h4>
+                                <div className="space-y-2">
+                                  {order.order_items.map((item) => (
+                                    <div key={item.id} className="flex items-center gap-2 p-2 bg-gray-50 rounded-md">
+                                      {item.products?.image_url && (
+                                        <img 
+                                          src={item.products.image_url} 
+                                          alt={item.product_name} 
+                                          className="w-10 h-10 object-cover rounded"
+                                        />
+                                      )}
+                                      <div className="flex-1">
+                                        <p className="text-xs font-medium">{item.product_name}</p>
+                                        <p className="text-xs text-gray-600">Qty: {item.quantity} × ${item.price} = ${item.subtotal}</p>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                     
                             {/* Price information */}
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
-                    {order.estimated_price && (
+                              {order.estimated_price && (
                                 <div className="bg-yellow-50 p-2 sm:p-3 rounded-lg">
                                   <p className="text-sm font-medium">Estimated: ${order.estimated_price.toLocaleString()}</p>
                                 </div>
@@ -812,70 +870,70 @@ export function AdminPanel() {
                             </div>
                             
                             {/* Admin confirmation section */}
-                        {order.status === 'waiting_admin_confirmation' && (
+                            {order.status === 'waiting_admin_confirmation' && (
                               <div className="flex flex-col sm:flex-row gap-2 mb-4 p-2 sm:p-3 bg-blue-50 rounded-lg">
-                            <Input
-                              type="number"
-                              placeholder="Set final price"
+                                <Input
+                                  type="number"
+                                  placeholder="Set final price"
                                   className="w-full sm:w-40"
-                              onKeyPress={(e) => {
-                                if (e.key === 'Enter') {
-                                  const target = e.target as HTMLInputElement;
-                                  updateOrderPrice(order.id, Number(target.value));
-                                }
-                              }}
-                            />
-                            <Button
-                              size="sm"
+                                  onKeyPress={(e) => {
+                                    if (e.key === 'Enter') {
+                                      const target = e.target as HTMLInputElement;
+                                      updateOrderPrice(order.id, Number(target.value));
+                                    }
+                                  }}
+                                />
+                                <Button
+                                  size="sm"
                                   className="w-full sm:w-auto"
-                              onClick={(e) => {
-                                const input = e.currentTarget.parentElement?.querySelector('input') as HTMLInputElement;
-                                if (input?.value) {
-                                  updateOrderPrice(order.id, Number(input.value));
-                                }
-                              }}
-                            >
-                              <DollarSign className="h-4 w-4 mr-1" />
-                              Set Price
-                            </Button>
-                      </div>
-                    )}
+                                  onClick={(e) => {
+                                    const input = e.currentTarget.parentElement?.querySelector('input') as HTMLInputElement;
+                                    if (input?.value) {
+                                      updateOrderPrice(order.id, Number(input.value));
+                                    }
+                                  }}
+                                >
+                                  <DollarSign className="h-4 w-4 mr-1" />
+                                  Set Price
+                                </Button>
+                              </div>
+                            )}
                     
                             {/* Status buttons */}
                             <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 justify-end mt-3">
-                      <Button 
-                        size="sm" 
-                        variant={order.status === "pending" ? "default" : "outline"}
-                        onClick={() => updateOrderStatus(order.id, "pending")}
+                              <Button 
+                                size="sm" 
+                                variant={order.status === "pending" ? "default" : "outline"}
+                                onClick={() => updateOrderStatus(order.id, "pending")}
                                 className="flex-1 sm:flex-none"
-                      >
-                        Pending
-                      </Button>
-                      <Button 
-                        size="sm" 
-                        variant={order.status === "confirmed" ? "default" : "outline"}
-                        onClick={() => updateOrderStatus(order.id, "confirmed")}
+                              >
+                                Pending
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                variant={order.status === "confirmed" ? "default" : "outline"}
+                                onClick={() => updateOrderStatus(order.id, "confirmed")}
                                 className="flex-1 sm:flex-none"
-                      >
-                        Confirm
-                      </Button>
-                      <Button 
-                        size="sm" 
-                        variant={order.status === "completed" ? "default" : "outline"}
-                        onClick={() => updateOrderStatus(order.id, "completed")}
+                              >
+                                Confirm
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                variant={order.status === "completed" ? "default" : "outline"}
+                                onClick={() => updateOrderStatus(order.id, "completed")}
                                 className="flex-1 sm:flex-none"
-                      >
-                        Complete
-                      </Button>
-                      <Button 
-                        size="sm" 
-                        variant={order.status === "cancelled" ? "destructive" : "outline"}
-                        onClick={() => updateOrderStatus(order.id, "cancelled")}
+                              >
+                                Complete
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                variant={order.status === "cancelled" ? "destructive" : "outline"}
+                                onClick={() => updateOrderStatus(order.id, "cancelled")}
                                 className="flex-1 sm:flex-none"
-                      >
-                        Cancel
-                      </Button>
-                    </div>
+                              >
+                                Cancel
+                              </Button>
+                            </div>
                             
                             {/* Related image status */}
                             {relatedImage && (
@@ -889,25 +947,24 @@ export function AdminPanel() {
                                     </Badge>
                                   </p>
                                   
-                                  {/* Sync warning if statuses don't match */}
                                   {((relatedImage.status === 'rejected' && order.status !== 'cancelled') ||
                                     (relatedImage.status === 'approved' && order.status === 'cancelled')) && (
                                     <Badge variant="destructive" className="text-xs flex items-center gap-1">
                                       <AlertCircle className="h-3 w-3" />
                                       Status mismatch!
                                     </Badge>
-            )}
-          </div>
-                </div>
+                                  )}
+                                </div>
+                              </div>
                             )}
-                </div>
-              </div>
+                          </div>
+                        </div>
                       </CardContent>
                     </Card>
                   );
                 })
               )}
-              </div>
+            </div>
           </TabsContent>
 
           <TabsContent value="products" className="space-y-4 mt-4 sm:mt-6">
@@ -919,54 +976,54 @@ export function AdminPanel() {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {isLoading ? (
+              {isLoading ? (
                 <div className="col-span-full flex justify-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-coral-500"></div>
-              </div>
-            ) : filteredProducts.length === 0 ? (
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-coral-500"></div>
+                </div>
+              ) : filteredProducts.length === 0 ? (
                 <div className="col-span-full text-center py-8 bg-gray-50 rounded-lg">
-                <p className="text-gray-500">No products found</p>
-              </div>
-            ) : (
-              filteredProducts.map((product) => (
+                  <p className="text-gray-500">No products found</p>
+                </div>
+              ) : (
+                filteredProducts.map((product) => (
                   <Card key={product.id} className="overflow-hidden border-0 shadow-md hover:shadow-lg transition-shadow">
                     <CardContent className="p-0">
                       <div className="relative">
-                    <img
-                      src={product.image_url}
-                      alt={product.name}
+                        <img
+                          src={product.image_url}
+                          alt={product.name}
                           className="w-full h-48 object-cover"
-                    />
+                        />
                         <Badge className="absolute top-2 right-2 bg-white/80 text-black px-2 py-1 rounded-full">
                           ${product.price}
                         </Badge>
                       </div>
                     
                       <div className="p-3 sm:p-4">
-                    {editingProduct && editingProduct.id === product.id ? (
-                      <div className="space-y-3">
-                        <Input
-                          value={editingProduct.name}
-                          onChange={(e) => setEditingProduct({...editingProduct, name: e.target.value})}
-                          placeholder="Product name"
-                        />
-                        <Input
-                          type="number"
-                          value={editingProduct.price}
-                          onChange={(e) => setEditingProduct({...editingProduct, price: Number(e.target.value)})}
-                          placeholder="Price"
-                        />
-                        <Textarea
-                          value={editingProduct.description || ''}
-                          onChange={(e) => setEditingProduct({...editingProduct, description: e.target.value})}
-                          placeholder="Description"
-                        />
+                        {editingProduct && editingProduct.id === product.id ? (
+                          <div className="space-y-3">
+                            <Input
+                              value={editingProduct.name}
+                              onChange={(e) => setEditingProduct({...editingProduct, name: e.target.value})}
+                              placeholder="Product name"
+                            />
+                            <Input
+                              type="number"
+                              value={editingProduct.price}
+                              onChange={(e) => setEditingProduct({...editingProduct, price: Number(e.target.value)})}
+                              placeholder="Price"
+                            />
+                            <Textarea
+                              value={editingProduct.description || ''}
+                              onChange={(e) => setEditingProduct({...editingProduct, description: e.target.value})}
+                              placeholder="Description"
+                            />
                             
                             <div className="space-y-2">
                               <Label>Product Image</Label>
                               <div className="flex items-center gap-2">
                                 <div className="border rounded-md p-1 flex-1">
-                        <Input
+                                  <Input
                                     type="file"
                                     accept="image/*"
                                     onChange={(e) => handleProductImageChange(e, true)}
@@ -977,8 +1034,8 @@ export function AdminPanel() {
                                 <div className="flex-1">
                                   <Input
                                     placeholder="Image URL"
-                          value={editingProduct.image_url || ''}
-                          onChange={(e) => setEditingProduct({...editingProduct, image_url: e.target.value})}
+                                    value={editingProduct.image_url || ''}
+                                    onChange={(e) => setEditingProduct({...editingProduct, image_url: e.target.value})}
                                     className="text-xs"
                                   />
                                 </div>
@@ -990,87 +1047,87 @@ export function AdminPanel() {
                                     src={editingProductPreview} 
                                     alt="Product preview" 
                                     className="w-full h-full object-contain"
-                        />
+                                  />
                                 </div>
                               )}
                             </div>
                             
-                        <div className="flex gap-2 mt-4">
-                          <Button 
-                            size="sm" 
-                            onClick={saveEditedProduct}
+                            <div className="flex gap-2 mt-4">
+                              <Button 
+                                size="sm" 
+                                onClick={saveEditedProduct}
                                 className="flex-1"
-                          >
+                              >
                                 <Check className="h-4 w-4 mr-2" /> Save
-                          </Button>
-                          <Button 
-                            size="sm" 
-                            variant="destructive"
-                            onClick={cancelEditingProduct}
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                variant="destructive"
+                                onClick={cancelEditingProduct}
                                 className="flex-1"
-                          >
+                              >
                                 <X className="h-4 w-4 mr-2" /> Cancel
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
                             <h3 className="font-semibold text-lg">{product.name}</h3>
                             <p className="text-coral-600 font-bold text-xl">${product.price}</p>
                             <p className="text-sm text-muted-foreground mt-2 line-clamp-2">{product.description}</p>
                             <div className="grid grid-cols-2 gap-2 mt-4">
-                          <Button 
-                            size="sm" 
-                            variant="outline"
-                            onClick={() => startEditingProduct(product)}
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                onClick={() => startEditingProduct(product)}
                                 className="flex-1"
-                          >
+                              >
                                 <Edit className="h-4 w-4 mr-2" /> Edit
-                          </Button>
-                          <Button 
-                            size="sm" 
-                            variant="destructive"
-                            onClick={() => deleteProduct(product.id)}
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                variant="destructive"
+                                onClick={() => deleteProduct(product.id)}
                                 className="flex-1"
-                          >
+                              >
                                 <Trash2 className="h-4 w-4 mr-2" /> Delete
-                          </Button>
-                        </div>
-                      </>
-                    )}
+                              </Button>
+                            </div>
+                          </>
+                        )}
                       </div>
-                  </CardContent>
-                </Card>
-              ))
-            )}
-          </div>
-        </TabsContent>
+                    </CardContent>
+                  </Card>
+                ))
+              )}
+            </div>
+          </TabsContent>
 
           <TabsContent value="images" className="space-y-4 mt-4 sm:mt-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {isLoading ? (
+              {isLoading ? (
                 <div className="col-span-full flex justify-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-coral-500"></div>
-              </div>
-            ) : generatedImages.length === 0 ? (
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-coral-500"></div>
+                </div>
+              ) : generatedImages.length === 0 ? (
                 <div className="col-span-full text-center py-8 bg-gray-50 rounded-lg">
-                <p className="text-gray-500">No generated images found</p>
-              </div>
-            ) : (
-              generatedImages.map((image) => (
+                  <p className="text-gray-500">No generated images found</p>
+                </div>
+              ) : (
+                generatedImages.map((image) => (
                   <Card key={image.id} className="overflow-hidden border-0 shadow-md hover:shadow-lg transition-shadow">
                     <CardContent className="p-0">
                       <div className="relative">
-                    <img
-                      src={image.image_url}
-                      alt={image.prompt}
+                        <img
+                          src={image.image_url}
+                          alt={image.prompt}
                           className="w-full h-60 object-cover"
-                    />
-                      <Badge 
+                        />
+                        <Badge 
                           className={`absolute top-3 right-3 ${getStatusColor(image.status)} capitalize px-3 py-1 rounded-full`}
-                      >
-                        {image.status}
-                      </Badge>
+                        >
+                          {image.status}
+                        </Badge>
                       </div>
                       
                       <div className="p-3 sm:p-4">
@@ -1080,94 +1137,94 @@ export function AdminPanel() {
                           {formatDate(image.created_at)}
                         </p>
                       
-                      {image.status === 'pending' && (
+                        {image.status === 'pending' && (
                           <div className="grid grid-cols-2 gap-2">
-                          <Button 
-                            size="sm" 
-                            onClick={() => updateImageStatus(image.id, 'approved')}
+                            <Button 
+                              size="sm" 
+                              onClick={() => updateImageStatus(image.id, 'approved')}
                               className="flex-1"
-                          >
+                            >
                               <Check className="h-4 w-4 mr-2" /> Approve
-                          </Button>
-                          <Button 
-                            size="sm" 
-                            variant="destructive"
-                            onClick={() => updateImageStatus(image.id, 'rejected')}
+                            </Button>
+                            <Button 
+                              size="sm" 
+                              variant="destructive"
+                              onClick={() => updateImageStatus(image.id, 'rejected')}
                               className="flex-1"
-                          >
+                            >
                               <X className="h-4 w-4 mr-2" /> Reject
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))
-            )}
-          </div>
-        </TabsContent>
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))
+              )}
+            </div>
+          </TabsContent>
 
           <TabsContent value="training" className="space-y-4 mt-4 sm:mt-6">
             <Card className="border-0 shadow-md">
               <CardHeader className="pb-2">
                 <CardTitle className="text-xl">Add Training Data</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <Label htmlFor="question">Question</Label>
-                <Input
-                  id="question"
-                  value={newTraining.question}
-                  onChange={(e) => setNewTraining(prev => ({ ...prev, question: e.target.value }))}
-                />
-              </div>
-              <div>
-                <Label htmlFor="answer">Answer</Label>
-                <Textarea
-                  id="answer"
-                  value={newTraining.answer}
-                  onChange={(e) => setNewTraining(prev => ({ ...prev, answer: e.target.value }))}
-                />
-              </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <Label htmlFor="question">Question</Label>
+                  <Input
+                    id="question"
+                    value={newTraining.question}
+                    onChange={(e) => setNewTraining(prev => ({ ...prev, question: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="answer">Answer</Label>
+                  <Textarea
+                    id="answer"
+                    value={newTraining.answer}
+                    onChange={(e) => setNewTraining(prev => ({ ...prev, answer: e.target.value }))}
+                  />
+                </div>
                 <Button onClick={addTrainingData} className="w-full sm:w-auto">
-                <Plus className="h-4 w-4 mr-2" />
-                Add Training Data
-              </Button>
-            </CardContent>
-          </Card>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Training Data
+                </Button>
+              </CardContent>
+            </Card>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {isLoading ? (
+              {isLoading ? (
                 <div className="col-span-full flex justify-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-coral-500"></div>
-              </div>
-            ) : trainingData.length === 0 ? (
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-coral-500"></div>
+                </div>
+              ) : trainingData.length === 0 ? (
                 <div className="col-span-full text-center py-8 bg-gray-50 rounded-lg">
-                <p className="text-gray-500">No training data found</p>
-              </div>
-            ) : (
-              trainingData.map((data) => (
+                  <p className="text-gray-500">No training data found</p>
+                </div>
+              ) : (
+                trainingData.map((data) => (
                   <Card key={data.id} className="border-0 shadow-md hover:shadow-lg transition-shadow">
                     <CardContent className="p-3 sm:p-4">
                       <div className="flex justify-between items-start gap-2">
                         <h3 className="font-semibold mb-2 flex-1">Q: {data.question}</h3>
-                      <Button 
-                        size="sm" 
-                        variant="destructive"
-                        onClick={() => deleteTrainingData(data.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+                        <Button 
+                          size="sm" 
+                          variant="destructive"
+                          onClick={() => deleteTrainingData(data.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                       <p className="text-muted-foreground text-sm bg-gray-50 p-3 rounded-md">A: {data.answer}</p>
                       <Badge variant="outline" className="mt-3">{data.category}</Badge>
-                  </CardContent>
-                </Card>
-              ))
-            )}
-          </div>
-        </TabsContent>
-      </Tabs>
+                    </CardContent>
+                  </Card>
+                ))
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );
