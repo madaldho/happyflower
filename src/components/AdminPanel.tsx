@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -6,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Edit, Trash2, Check, X, Image, Search, RefreshCw, Package, ShoppingBag, ChevronDown, ArrowLeft } from 'lucide-react';
+import { Plus, Edit, Trash2, Check, X, Image, Search, RefreshCw, Package, ShoppingBag, ChevronDown, ArrowLeft, Clock } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import type { Product, GeneratedImage, AITrainingData, Order } from '@/types';
